@@ -105,8 +105,7 @@ complete project on their own. Phase 8 is cut first if time runs short.
 
 ## Implementation steps
 
-Condensed from `University/CS4100/Project/Proposal/Implementation Plan.md` in the Obsidian vault —
-see that file for the full detail, dataset URLs, and risk table.
+Condensed from [implementation plan](https://hackmd.io/@maxCoss/ImplementationPlan).
 
 **Phase 0 — Repo & environment** *(½ day)*
 GitHub repo and collaborator access; Python venv with pinned `requirements.txt`; global
