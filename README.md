@@ -1,7 +1,9 @@
 # ids-crossera
 
 **Cross-Dataset Generalization for Network Intrusion Detection**
-CS4100 (Foundations of AI), Summer B 2026 — Group 10: Max Cossill & Enqi Zhang (Steven)
+CS4100 (Foundations of AI), Summer B 2026 
+
+_Group 10: Max Cossill & Enqi Zhang (Steven)_
 
 Machine-learning intrusion detection systems are almost always trained and tested on a single
 static dataset captured at one point in time. That means the accuracy numbers you see published
@@ -9,8 +11,8 @@ describe only *in-distribution* performance — how well a detector does on traf
 what it already saw. Real networks don't hold still: protocols change, services change, and attack
 tooling changes.
 
-This project measures what that costs. We train a detector on **UNSW-NB15** (2015), test it
-unchanged on the newer **TON_IoT Network** dataset (~2019–2020) to see how far it falls, and then
+This project measures what that costs. We train a detector on **UNSW-NB15** ([2015](https://unsw-my.sharepoint.com/personal/z5025758_ad_unsw_edu_au/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fz5025758%5Fad%5Funsw%5Fedu%5Fau%2FDocuments%2FTON%5FIoT%20datasets&ga=1)), test it
+unchanged on the newer **TON_IoT Network** dataset ([~2019–2020](https://unsw-my.sharepoint.com/personal/z5025758_ad_unsw_edu_au/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fz5025758%5Fad%5Funsw%5Fedu%5Fau%2FDocuments%2FTON%5FIoT%20datasets&ga=1)) to see how far it falls, and then
 measure how little modern labeled data it takes to claw the performance back. The goal is two
 honest numbers: **how big the generalization gap is**, and **how cheaply it can be closed**.
 
