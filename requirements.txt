@@ -1,0 +1,9 @@
+# CS4100 ids-crossera — pinned dependencies (Phase 0).
+# Python 3.11 or 3.12. Re-pin with `pip freeze` once the environment is finalized.
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.1
+matplotlib==3.9.1
+seaborn==0.13.2
+xgboost==2.1.1
+pyarrow==17.0.0        # parquet I/O for data/processed/*.parquet
