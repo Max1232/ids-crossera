@@ -5,5 +5,10 @@ pandas==2.2.2
 scikit-learn==1.5.1
 matplotlib==3.9.1
 seaborn==0.13.2
-xgboost==2.1.1
 pyarrow==17.0.0        # parquet I/O for data/processed/*.parquet
+
+# Nice-to-have, deliberately NOT installed: a gradient-boosting baseline.
+# Boosting appears nowhere in the approved proposal or the implementation plan, and xgboost==2.1.1
+# cost 640 MB (240 MB itself + 400 MB of nvidia-nccl-cu12 CUDA libs) for zero references in src/.
+# If we ever want one, use sklearn's HistGradientBoostingClassifier — already installed with
+# scikit-learn, competitive with XGBoost at this data size, no new dependency. See the plan's Phase 4.
