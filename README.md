@@ -34,17 +34,22 @@ delta as an **upper bound on pure temporal drift**, and restrict the per-attack-
 families both datasets actually share so the comparison stays fair. The true decade-forward test
 comes only from the optional RQ3 2026 captures.
 
-Two features the proposal promised aren't in the shared subspace: **TTL statistics** (structurally
-unavailable — TON_IoT is Zeek `conn.log`-derived and Zeek exports no per-flow TTL) and
-**pre-computed rates** (derived from duration and counts instead). Both are documented in the
-implementation plan.
+Two features the proposal promised aren't in the shared subspace. **TTL statistics** are absent from
+the TON_IoT flow CSVs — they are Zeek `conn.log`-derived and Zeek exports no per-flow IP TTL — and are
+recoverable only by reprocessing the raw packet captures, which is out of scope for this timeline.
+Dropping them arguably strengthens the result: UNSW-NB15's attack traffic came from an IXIA
+PerfectStorm appliance while its normal traffic came from different hosts, which makes initial TTL a
+*generator fingerprint* rather than an attack signal, so including it would have inflated
+in-distribution scores. **Pre-computed rates** are derived from duration and counts instead, since
+UNSW's `Sload`/`Dload` are in bits per second and TON_IoT has no rate column. Both deviations are
+documented in the implementation plan.
 
 ## Status
 
-Phase 0 scaffold. The layout, config, and feature map are in place; the pipeline modules are
-stubs that raise `NotImplementedError`, each tagged with the phase that fills it in
-(see [Implementation steps](#implementation-steps)). The datasets have not been downloaded yet, so
-`run.sh` currently walks the phase sequence without doing work.
+Phase 0 scaffold, Phase 1 in progress. The layout, config, and feature map are in place; the pipeline
+modules are stubs that raise `NotImplementedError`, each tagged with the phase that fills it in
+(see [Implementation steps](#implementation-steps)). Both upstream archives are downloaded but not yet
+extracted, so `run.sh` currently walks the phase sequence without doing work.
 
 ## Setup
 
@@ -100,12 +105,17 @@ ids-crossera/
 
 ## Constraints
 
-Three rules shape every design decision below:
+Four rules shape every design decision below:
 
 - **From scratch.** At least one classifier is implemented from first principles in numpy, not
   pulled from a library.
 - **No LLM or transformer as the core technique.** Classical and from-scratch methods only.
 - **Reproducible.** Fixed seed, pinned dependencies, one-command end-to-end run.
+- **No leakage across eras.** The `Preprocessor` is fit on **UNSW-train only** and applied unchanged
+  to UNSW-test and TON_IoT. Refitting or re-tuning anything on the target invalidates the entire
+  drift measurement — the whole result is a comparison between a model that has seen 2015 traffic and
+  one era it has not. For the same reason `DROP_COLUMNS` removes IPs, ports, timestamps, and row
+  `id`: they let a model memorize rather than generalize.
 
 Scope is bounded to fit four weeks: Phases 0–4, 6, and 7 are the guaranteed core and make a
 complete project on their own. Phase 8 is cut first if time runs short.
