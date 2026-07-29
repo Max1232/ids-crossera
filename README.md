@@ -1,6 +1,6 @@
 # ids-crossera
 
-**Cross-Dataset Generalization for Network Intrusion Detection**
+**Measuring and Correcting Temporal Concept Drift in Network Intrusion Detection**
 CS4100 (Foundations of AI), Summer B 2026 
 
 _Group 10: Max Cossill & Enqi Zhang (Steven)_
@@ -9,28 +9,35 @@ Machine-learning intrusion detection systems are almost always trained and teste
 static dataset captured at one point in time. That means the accuracy numbers you see published
 describe only *in-distribution* performance — how well a detector does on traffic that looks like
 what it already saw. Real networks don't hold still: protocols change, services change, and attack
-tooling changes.
+tooling changes. That gap has a name — **concept drift** — and most published NIDS work never
+measures it.
 
-This project measures what that costs. We train a detector on **UNSW-NB15** ([2015](https://unsw-my.sharepoint.com/personal/z5025758_ad_unsw_edu_au/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fz5025758%5Fad%5Funsw%5Fedu%5Fau%2FDocuments%2FTON%5FIoT%20datasets&ga=1)), test it
-unchanged on the newer **TON_IoT Network** dataset ([~2019–2020](https://unsw-my.sharepoint.com/personal/z5025758_ad_unsw_edu_au/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fz5025758%5Fad%5Funsw%5Fedu%5Fau%2FDocuments%2FTON%5FIoT%20datasets&ga=1)) to see how far it falls, and then
+This project measures it directly. We train a detector on **UNSW-NB15** ([2015](https://research.unsw.edu.au/projects/unsw-nb15-dataset)), test it
+unchanged on the newer **TON_IoT Network** dataset ([~2019–2020](https://research.unsw.edu.au/projects/toniot-datasets)) to see how far it falls, and then
 measure how little modern labeled data it takes to claw the performance back. The goal is two
-honest numbers: **how big the generalization gap is**, and **how cheaply it can be closed**.
+honest numbers: **how much the detector degrades**, and **how cheaply that can be corrected**.
 
 ## Research questions
 
-- **RQ1 — the gap:** How much does a 2015-trained detector degrade on newer, unseen traffic?
-- **RQ2 — recovery:** How little modern labeled data does it take to recover most of that
+- **RQ1 — drift:** How much does a 2015-trained detector degrade on newer traffic?
+- **RQ2 — correction:** How little modern labeled data does transfer learning need to recover that
   performance?
 - **RQ3 — stretch (optional):** Does the model flag traffic from live, in-house-detonated 2026
-  malware?
+  malware — a full decade forward from the training data?
 
-## What we measure, stated honestly
+## Limitations
 
-UNSW-NB15 is general enterprise traffic; TON_IoT is IoT/IIoT. The gap we measure therefore bundles
-*temporal drift* (attacks evolving over ~4–5 years) with an *IoT-vs-enterprise domain shift* — it
-is not a clean time-only experiment, and we don't claim it is. We frame the result as
-**cross-dataset generalization**, and we restrict the per-attack-family analysis to families both
-datasets actually share so the comparison stays fair.
+UNSW-NB15 is general enterprise traffic; TON_IoT is IoT/IIoT. The UNSW→TON_IoT delta therefore
+bundles *temporal drift* (attacks evolving over ~4–5 years) with an *enterprise-vs-IoT domain
+shift* — it is not a clean time-only experiment, and we don't claim it is. We treat the measured
+delta as an **upper bound on pure temporal drift**, and restrict the per-attack-family analysis to
+families both datasets actually share so the comparison stays fair. The true decade-forward test
+comes only from the optional RQ3 2026 captures.
+
+Two features the proposal promised aren't in the shared subspace: **TTL statistics** (structurally
+unavailable — TON_IoT is Zeek `conn.log`-derived and Zeek exports no per-flow TTL) and
+**pre-computed rates** (derived from duration and counts instead). Both are documented in the
+implementation plan.
 
 ## Status
 
@@ -139,9 +146,11 @@ Two known traps: **bytes** — TON_IoT `src_bytes`/`dst_bytes` are *payload* byt
 `src_ip_bytes`/`dst_ip_bytes` are *total IP* bytes, and UNSW's transaction bytes sit closer to the
 total, so pick one notion and apply it consistently; **state** — UNSW `state` codes are *not* Zeek
 `conn_state` codes, so collapse both to a coarse shared set (completed / reset / no-response) or
-drop the feature. Optionally derive shared rate features (bytes/sec, packets/sec). Drop
+drop the feature. Derive shared rate features (`bytes_per_sec`, `pkts_per_sec`) from duration
+and counts — required, since the proposal promised rates and neither dataset exposes a usable
+shared rate column; guard `duration == 0`. Drop
 identity/leakage columns (IPs, ports, timestamps, row `id`, unmapped `*_ip_bytes`) — they let a
-model memorize and destroy cross-dataset transfer. Normalize categorical vocabularies, bucketing
+model memorize and destroy cross-era transfer. Normalize categorical vocabularies, bucketing
 rare values to `other`. Define the shared label space: binary `normal (0)` / `attack (1)` for the
 headline, plus shared families (`DoS`, `DDoS`, `backdoor`, `scanning/reconnaissance`) for per-family
 analysis. Emit `unsw_common.parquet` and `toniot_common.parquet`.
@@ -161,7 +170,7 @@ untouched until eval. Serialize the fitted preprocessor.
 Dummy/majority-class sanity floor; Random Forest and Decision Tree as the core classical
 baselines; Linear SVM (`LinearSVC`/`SGDClassifier`) optional — **not** a kernel SVM, which at
 175k rows needs a kernel matrix in the hundreds of GB and won't finish. Class weights throughout.
-Tune depth/regularization on the validation split *before* any cross-dataset run. Log every run
+Tune depth/regularization on the validation split *before* any cross-era run. Log every run
 (params, seed, metrics) to `reports/metrics.csv`.
 
 **Phase 5 — From-scratch models** *(3–4 days — required for the grade; lock in the easy one first)*
@@ -173,12 +182,12 @@ with **class weighting in the loss**, since a plain net on imbalanced tabular da
 set; check in-distribution scores land within a few points of the sklearn equivalents. Keep the
 math clean — it drops straight into the report's Methods section.
 
-**Phase 6 — Zero-shot cross-dataset evaluation** *(1–2 days — RQ1, the primary result)*
+**Phase 6 — Zero-shot cross-era evaluation** *(1–2 days — RQ1, the primary result)*
 Run every model from Phases 4–5 in two regimes side by side: **in-distribution** (train
-UNSW-train → test UNSW-test) and **cross-dataset zero-shot** (train UNSW-train → test TON_IoT, no
+UNSW-train → test UNSW-test) and **cross-era zero-shot** (train UNSW-train → test TON_IoT, no
 retraining). Lead with F1 and ROC-AUC — accuracy misleads under imbalance — plus precision/recall,
 confusion matrices, and per-shared-family breakdowns. The headline is the **Δ (in-distribution −
-cross-dataset)** per metric. A large drop is the *expected finding*, not a failure.
+cross-era)** per metric. A large drop is the *expected finding*, not a failure.
 
 **Phase 7 — Recovery curve** *(2–3 days — RQ2, the secondary result)*
 **Fix the TON_IoT test set once, up front** — freeze ~50% as the test set and draw fine-tune
@@ -198,7 +207,7 @@ and run through the trained and recovered models as a qualitative check. If eith
 time is short, drop it — the public-dataset core is a complete project.
 
 **Phase 9 — Results, report & demo** *(3–4 days, started in Week 3)*
-Figures to `reports/figures/`: in-distribution vs. cross-dataset bars, confusion matrices, ROC
+Figures to `reports/figures/`: in-distribution vs. cross-era bars, confusion matrices, ROC
 curves, per-family F1, and the recovery curve — labels, legends, and captions are graded. Report
 (Abstract, Intro + Related Work, Methods, Data & Experiments, Results, Conclusion) at ≤6 pages plus
 a title page. Demo video recorded, uploaded privately, embedded in the deck. 65–70 word team
