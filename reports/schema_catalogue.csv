@@ -1,0 +1,90 @@
+dataset,ordinal,column,pandas_dtype,semantic_type,n_unique,n_missing,missing_token,constant,example_values,description,description_source,shared_concept,phase2_disposition
+unsw,1,id,int64,identity,175341,0,none observed,False,withheld (licence/PII); 175341 distinct,"Row index of the partitioned set; 1..N, unique per row. Not a traffic feature.",empirical (absent from NUSW-NB15_features.csv and from both UNSW PDFs),,drop-identity
+unsw,2,dur,float64,numeric-continuous,74039,0,none observed,False,0-60,Record total duration (seconds); span from first to last packet of the flow.,features_csv:dur,flow_duration,mapped
+unsw,3,proto,object,categorical,133,0,none observed,False,tcp|udp|unas|arp|ospf|sctp|... (133 levels),Transaction protocol (Argus protocol name).,features_csv:proto,protocol,mapped
+unsw,4,service,object,categorical,13,94168,'-',False,-|dns|http|smtp|ftp-data|ftp|ssh|pop3|dhcp|snmp|ssl|irc|radius,Application service inferred by Bro/Zeek; '-' when no service was identified.,features_csv:service,service,mapped
+unsw,5,state,object,categorical,9,0,none observed,False,INT|FIN|CON|REQ|RST|ECO|PAR|URN|no,"Argus transaction state and its dependent protocol (ACC, CLO, CON, ECO, ECR, FIN, INT, MAS, PAR, REQ, RST, TST, TXD, URH, URN, '-'). NOT Zeek conn_state codes.",features_csv:state,conn_state,mapped
+unsw,6,spkts,int64,numeric-count,480,0,none observed,False,1-9616,Source to destination packet count.,features_csv:Spkts (case-normalized),src_pkts,mapped
+unsw,7,dpkts,int64,numeric-count,443,0,none observed,False,0-10974,Destination to source packet count.,features_csv:Dpkts (case-normalized),dst_pkts,mapped
+unsw,8,sbytes,int64,numeric-count,7214,0,none observed,False,28-12965233,"Source to destination transaction bytes. Empirically IP-level (min=28 = 20B IP + 8B UDP header), i.e. headers included, not payload-only.",features_csv:sbytes,src_bytes,mapped
+unsw,9,dbytes,int64,numeric-count,6660,0,none observed,False,0-14655550,Destination to source transaction bytes; same IP-level notion as sbytes.,features_csv:dbytes,dst_bytes,mapped
+unsw,10,rate,float64,numeric-continuous,76991,0,none observed,False,0-1e+06,Packets per second over the flow span. Empirically (spkts+dpkts-1)/dur (99.82% of dur>0 rows match within 0.1%). Argus (n-1)-interval convention.,empirical (absent from NUSW-NB15_features.csv and from both UNSW PDFs),,drop-unmapped
+unsw,11,sttl,int64,numeric-count,11,0,none observed,False,0-255,Source to destination time to live value.,features_csv:sttl,,drop-unmapped
+unsw,12,dttl,int64,numeric-count,6,0,none observed,False,0-254,Destination to source time to live value.,features_csv:dttl,,drop-unmapped
+unsw,13,sload,float64,numeric-continuous,80885,0,none observed,False,0-5988000256,"Source bits per second. Empirically sbytes*8*(spkts-1)/(spkts*dur), i.e. bits/sec with the Argus (n-1)/n packet correction (99.98% match within 1%).",features_csv:Sload (case-normalized) + empirical unit check,,drop-unmapped
+unsw,14,dload,float64,numeric-continuous,77474,0,none observed,False,0-22422730,Destination bits per second; same (n-1)/n convention as sload.,features_csv:Dload (case-normalized) + empirical unit check,,drop-unmapped
+unsw,15,sloss,int64,numeric-count,409,0,none observed,False,0-4803,Source packets retransmitted or dropped.,features_csv:sloss,,drop-unmapped
+unsw,16,dloss,int64,numeric-count,370,0,none observed,False,0-5484,Destination packets retransmitted or dropped.,features_csv:dloss,,drop-unmapped
+unsw,17,sinpkt,float64,numeric-continuous,76161,0,none observed,False,0-84371.5,Source interpacket arrival time (mSec).,features_csv:Sintpkt (renamed Sintpkt -> sinpkt),,drop-unmapped
+unsw,18,dinpkt,float64,numeric-continuous,74245,0,none observed,False,0-56716.8,Destination interpacket arrival time (mSec).,features_csv:Dintpkt (renamed Dintpkt -> dinpkt),,drop-unmapped
+unsw,19,sjit,float64,numeric-continuous,77532,0,none observed,False,0-1.46048e+06,Source jitter (mSec).,features_csv:Sjit (case-normalized),,drop-unmapped
+unsw,20,djit,float64,numeric-continuous,76831,0,none observed,False,0-289388,Destination jitter (mSec).,features_csv:Djit (case-normalized),,drop-unmapped
+unsw,21,swin,int64,numeric-count,13,0,none observed,False,0-255,Source TCP window advertisement value.,features_csv:swin,,drop-unmapped
+unsw,22,stcpb,int64,numeric-count,75265,0,none observed,False,0-4294958913,Source TCP base sequence number.,features_csv:stcpb,,drop-unmapped
+unsw,23,dtcpb,int64,numeric-count,75089,0,none observed,False,0-4294881924,Destination TCP base sequence number.,features_csv:dtcpb,,drop-unmapped
+unsw,24,dwin,int64,numeric-count,7,0,none observed,False,0-255,Destination TCP window advertisement value.,features_csv:dwin,,drop-unmapped
+unsw,25,tcprtt,float64,numeric-continuous,43319,0,none observed,False,0-2.51889,TCP connection setup round-trip time; sum of synack and ackdat.,features_csv:tcprtt,,drop-unmapped
+unsw,26,synack,float64,numeric-continuous,40142,0,none observed,False,0-2.10035,TCP setup time between the SYN and the SYN_ACK packets.,features_csv:synack,,drop-unmapped
+unsw,27,ackdat,float64,numeric-continuous,37708,0,none observed,False,0-1.52088,TCP setup time between the SYN_ACK and the ACK packets.,features_csv:ackdat,,drop-unmapped
+unsw,28,smean,int64,numeric-count,1357,0,none observed,False,28-1504,Mean packet size transmitted by the source. Empirically round(sbytes/spkts) on 99.06% of rows.,features_csv:smeansz (renamed smeansz -> smean),,drop-unmapped
+unsw,29,dmean,int64,numeric-count,1328,0,none observed,False,0-1458,Mean packet size transmitted by the destination.,features_csv:dmeansz (renamed dmeansz -> dmean),,drop-unmapped
+unsw,30,trans_depth,int64,numeric-count,11,0,none observed,False,0-172,Pipelined depth into the connection of the http request/response transaction.,features_csv:trans_depth,,drop-unmapped
+unsw,31,response_body_len,int64,numeric-count,2386,0,none observed,False,0-6558056,Uncompressed content size of data transferred from the server's http service.,features_csv:res_bdy_len (renamed res_bdy_len),,drop-unmapped
+unsw,32,ct_srv_src,int64,numeric-count,52,0,none observed,False,1-63,No. of connections sharing the same service and source address in the last 100 connections.,features_csv:ct_srv_src,,drop-unmapped
+unsw,33,ct_state_ttl,int64,numeric-count,5,0,none observed,False,0-6,Bucket index for each state according to a specific range of source/destination TTL values.,features_csv:ct_state_ttl,,drop-unmapped
+unsw,34,ct_dst_ltm,int64,numeric-count,50,0,none observed,False,1-51,No. of connections of the same destination address in the last 100 connections.,features_csv:ct_dst_ltm,,drop-unmapped
+unsw,35,ct_src_dport_ltm,int64,numeric-count,47,0,none observed,False,1-51,No. of connections of the same source address and destination port in the last 100 connections.,features_csv:ct_src_dport_ltm,,drop-unmapped
+unsw,36,ct_dst_sport_ltm,int64,numeric-count,32,0,none observed,False,1-46,No. of connections of the same destination address and source port in the last 100 connections.,features_csv:ct_dst_sport_ltm,,drop-unmapped
+unsw,37,ct_dst_src_ltm,int64,numeric-count,54,0,none observed,False,1-65,No. of connections of the same source and destination address in the last 100 connections.,features_csv:ct_dst_src_ltm,,drop-unmapped
+unsw,38,is_ftp_login,int64,numeric-count,4,0,none observed,False,0-4,"Documented as binary (1 if the ftp session was authenticated), but the delivered column takes 0/1/2/4 and is byte-identical to ct_ftp_cmd.",features_csv:is_ftp_login (doc contradicts data - see md),,drop-unmapped
+unsw,39,ct_ftp_cmd,int64,numeric-count,4,0,none observed,False,0-4,No. of flows that has a command in an ftp session. Byte-identical to is_ftp_login in both delivered splits.,features_csv:ct_ftp_cmd,,drop-unmapped
+unsw,40,ct_flw_http_mthd,int64,numeric-count,11,0,none observed,False,0-30,No. of flows that has methods such as Get and Post in http service.,features_csv:ct_flw_http_mthd,,drop-unmapped
+unsw,41,ct_src_ltm,int64,numeric-count,50,0,none observed,False,1-60,No. of connections of the same source address in the last 100 connections.,features_csv:'ct_src_ ltm' (upstream embedded-space typo),,drop-unmapped
+unsw,42,ct_srv_dst,int64,numeric-count,52,0,none observed,False,1-62,No. of connections sharing the same service and destination address in the last 100 connections.,features_csv:ct_srv_dst,,drop-unmapped
+unsw,43,is_sm_ips_ports,int64,binary-flag,2,0,none observed,False,0-1,"1 if source and destination IP addresses are equal and port numbers are equal, else 0.",features_csv:is_sm_ips_ports,,drop-unmapped
+unsw,44,attack_cat,object,label,10,0,none observed,False,Normal|Generic|Exploits|Fuzzers|DoS|Reconnaissance|Analysis|Backdoor|Shellcode|Worms,Attack category name; 'Normal' for benign records. Delivered vocabulary uses 'Backdoor' (singular) where the docs say 'Backdoors'.,features_csv:attack_cat (vocabulary differs - see md),,label
+unsw,45,label,int64,label,2,0,none observed,False,0-1,"0 for normal, 1 for attack.",features_csv:Label (case-normalized),,label
+toniot,1,src_ip,object,identity,51,0,none observed,False,withheld (licence/PII); 51 distinct,Source IP address originating the flow.,Network Features-Description.pdf #2,,drop-identity
+toniot,2,src_port,int64,identity,26628,0,none observed,False,withheld (licence/PII); 26628 distinct,Originating endpoint's TCP/UDP source port.,Network Features-Description.pdf #3,,drop-identity
+toniot,3,dst_ip,object,identity,753,0,none observed,False,withheld (licence/PII); 753 distinct,Destination IP address responding to the flow.,Network Features-Description.pdf #4,,drop-identity
+toniot,4,dst_port,int64,identity,2039,0,none observed,False,withheld (licence/PII); 2039 distinct,Responding endpoint's TCP/UDP destination port.,Network Features-Description.pdf #5,,drop-identity
+toniot,5,proto,object,categorical,3,0,none observed,False,tcp|udp|icmp,Transport-layer protocol of the flow connection.,Network Features-Description.pdf #6,protocol,mapped
+toniot,6,service,object,categorical,9,132032,'-',False,-|dns|http|ftp|ssl|gssapi|dce_rpc|smb|smb;gssapi,Dynamically detected application protocol (Zeek service); '-' when undetected.,Network Features-Description.pdf #7,service,mapped
+toniot,7,duration,float64,numeric-continuous,68570,0,none observed,False,0-93516.9,Flow duration in seconds: time of last packet seen minus time of first packet seen.,Network Features-Description.pdf #8,flow_duration,mapped
+toniot,8,src_bytes,int64,numeric-count,2199,0,none observed,False,0-3890855126,"Source PAYLOAD bytes, derived from TCP sequence numbers. Zero for 65.5% of rows (handshake-only / scan / ICMP flows carry no payload). NOT the counterpart of UNSW sbytes - see src_ip_bytes.",Network Features-Description.pdf #9,,derived-input
+toniot,9,dst_bytes,int64,numeric-count,2338,0,none observed,False,0-3913853482,Destination PAYLOAD bytes from TCP sequence numbers; zero for 70.6% of rows. NOT the counterpart of UNSW dbytes - see dst_ip_bytes.,Network Features-Description.pdf #10,,derived-input
+toniot,10,conn_state,object,categorical,13,0,none observed,False,S0|SF|REJ|OTH|SH|S1|S3|SHR|RSTR|RSTRH|RSTO|S2|RSTOS0,"Zeek connection state (S0, S1, S2, S3, SF, SH, SHR, REJ, RSTO, RSTOS0, RSTR, RSTRH, OTH). Disjoint vocabulary from UNSW state.",Network Features-Description.pdf #11,conn_state,mapped
+toniot,11,missed_bytes,int64,numeric-count,694,0,none observed,False,0-1854527046,Number of missing bytes in content gaps; 0 on 98.6% of rows.,Network Features-Description.pdf #12,,unused
+toniot,12,src_pkts,int64,numeric-count,274,0,none observed,False,0-24623,Number of packets originated by the source.,Network Features-Description.pdf #13,src_pkts,mapped
+toniot,13,src_ip_bytes,int64,numeric-count,3648,0,none observed,False,0-6522626,Total IP bytes from the source (sum of IP total-length). The IP-level notion that matches UNSW sbytes; exceeds src_bytes on 99.5% of rows.,Network Features-Description.pdf #14,src_bytes,mapped
+toniot,14,dst_pkts,int64,numeric-count,203,0,none observed,False,0-121942,Number of packets originated by the destination.,Network Features-Description.pdf #15,dst_pkts,mapped
+toniot,15,dst_ip_bytes,int64,numeric-count,3304,0,none observed,False,0-86395523,Total IP bytes from the destination; IP-level counterpart of UNSW dbytes.,Network Features-Description.pdf #16,dst_bytes,mapped
+toniot,16,dns_query,object,free-text,726,176198,'-',False,withheld (licence/PII); 726 distinct,Domain name subject of the DNS query.,Network Features-Description.pdf #17,,drop-unmapped
+toniot,17,dns_qclass,int64,categorical,3,176275,0 (not-applicable sentinel),False,0-32769,DNS query class value; 0 used as the not-applicable sentinel (83.5%).,Network Features-Description.pdf #18,,drop-unmapped
+toniot,18,dns_qtype,int64,categorical,12,176275,0 (not-applicable sentinel),False,0-255,DNS query type value; 0 used as the not-applicable sentinel (83.5%).,Network Features-Description.pdf #19,,drop-unmapped
+toniot,19,dns_rcode,int64,categorical,4,202344,0 (not-applicable sentinel),False,0-5,DNS response code; 0 conflates 'NOERROR' with 'not a DNS flow'.,Network Features-Description.pdf #20,,drop-unmapped
+toniot,20,dns_AA,object,binary-flag,3,176030,'-',False,-|F|T,"DNS authoritative-answer flag (T/F), '-' when not a DNS flow.",Network Features-Description.pdf #21,,drop-unmapped
+toniot,21,dns_RD,object,binary-flag,3,176030,'-',False,-|T|F,"DNS recursion-desired flag (T/F), '-' when not a DNS flow.",Network Features-Description.pdf #22,,drop-unmapped
+toniot,22,dns_RA,object,binary-flag,3,176030,'-',False,-|F|T,"DNS recursion-available flag (T/F), '-' when not a DNS flow.",Network Features-Description.pdf #23,,drop-unmapped
+toniot,23,dns_rejected,object,binary-flag,3,176030,'-',False,-|F|T,"DNS query rejected by the server (T/F), '-' when not a DNS flow.",Network Features-Description.pdf #24,,drop-unmapped
+toniot,24,ssl_version,object,categorical,4,210642,'-',False,-|TLSv12|TLSv13|TLSv10,SSL/TLS version offered by the server.,Network Features-Description.pdf #25,,unused
+toniot,25,ssl_cipher,object,categorical,6,210642,'-',False,withheld (licence/PII); 6 distinct,SSL cipher suite chosen by the server.,Network Features-Description.pdf #26,,unused
+toniot,26,ssl_resumed,object,binary-flag,3,210642,'-',False,-|F|T,SSL session-resumption flag (T/F).,Network Features-Description.pdf #27,,unused
+toniot,27,ssl_established,object,binary-flag,3,210642,'-',False,-|F|T,SSL connection-established flag (T/F).,Network Features-Description.pdf #28,,unused
+toniot,28,ssl_subject,object,free-text,6,211032,'-',False,withheld (licence/PII); 6 distinct,Subject of the X.509 certificate offered by the server.,Network Features-Description.pdf #29,,unused
+toniot,29,ssl_issuer,object,free-text,5,211032,'-',False,withheld (licence/PII); 5 distinct,Certificate-authority owner/originator of the SSL certificate.,Network Features-Description.pdf #30,,unused
+toniot,30,http_trans_depth,object,numeric-count,11,210740,'-',False,-|1|2|10|3|4|5|6|7|8|9,Pipelined depth into the HTTP connection. Object dtype because '-' is the not-applicable sentinel.,Network Features-Description.pdf #31,,unused
+toniot,31,http_method,object,categorical,4,210756,'-',False,-|GET|POST|HEAD,"HTTP request method (GET, POST, HEAD).",Network Features-Description.pdf #32,,unused
+toniot,32,http_uri,object,free-text,86,210756,'-',False,withheld (licence/PII); 86 distinct,URI used in the HTTP request.,Network Features-Description.pdf #33,,unused
+toniot,33,http_version,object,categorical,2,210745,'-',False,-|1.1,HTTP version used.,Network Features-Description.pdf #35 (doc skips ID 34),,unused
+toniot,34,http_request_body_len,int64,numeric-count,6,211027,0 (not-applicable sentinel),False,0-2338,Uncompressed content size transferred from the HTTP client.,Network Features-Description.pdf #36,,unused
+toniot,35,http_response_body_len,int64,numeric-count,75,210766,0 (not-applicable sentinel),False,0-13424384,Uncompressed content size transferred from the HTTP server.,Network Features-Description.pdf #37,,unused
+toniot,36,http_status_code,int64,categorical,8,210745,0 (not-applicable sentinel),False,0-404,HTTP status code returned by the server; 0 is the not-applicable sentinel.,Network Features-Description.pdf #38,,unused
+toniot,37,http_user_agent,object,free-text,35,210756,'-',False,withheld (licence/PII); 35 distinct,HTTP User-Agent header value. Doc types this 'Number'; it is a string.,Network Features-Description.pdf #39 (type in doc is wrong),,unused
+toniot,38,http_orig_mime_types,object,categorical,3,211027,'-',False,withheld (licence/PII); 3 distinct,Ordered vector of MIME types from the source system.,Network Features-Description.pdf #40,,unused
+toniot,39,http_resp_mime_types,object,categorical,10,210839,'-',False,withheld (licence/PII); 10 distinct,Ordered vector of MIME types from the destination system.,Network Features-Description.pdf #41,,unused
+toniot,40,weird_name,object,categorical,11,210687,'-',False,withheld (licence/PII); 11 distinct,Name of the Zeek protocol anomaly/violation observed.,Network Features-Description.pdf #42,,unused
+toniot,41,weird_addl,object,free-text,3,210886,'-',False,withheld (licence/PII); 3 distinct,Additional information associated with the protocol anomaly.,Network Features-Description.pdf #43,,unused
+toniot,42,weird_notice,object,binary-flag,2,210687,'-',False,-|F,Whether the violation/anomaly was turned into a Zeek notice.,Network Features-Description.pdf #44,,unused
+toniot,43,label,int64,label,2,0,none observed,False,0-1,"0 indicates normal, 1 indicates attack.",Network Features-Description.pdf #45,,label
+toniot,44,type,object,label,10,0,none observed,False,normal|backdoor|ddos|dos|injection|password|ransomware|scanning|xss|mitm,Attack category tag ('normal' plus nine attack families).,Network Features-Description.pdf #46,,label

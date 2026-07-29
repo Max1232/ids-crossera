@@ -1,11 +1,22 @@
 # CS4100 ids-crossera — pinned dependencies (Phase 0).
-# Python 3.11 or 3.12. Re-pin with `pip freeze` once the environment is finalized.
+# Python 3.11 or 3.12.
+#
+# These 6 direct pins are the final set — deliberately not a `pip freeze` dump, so the file stays
+# readable and the transitive tree stays free to resolve. Verified reproducible on Python 3.12.3:
+# `pip install -r requirements.txt` into a clean venv resolves to exactly 21 packages — these 6,
+# plus pip, plus 14 transitive (contourpy, cycler, fonttools, joblib, kiwisolver, packaging,
+# pillow, pyparsing, python-dateutil, pytz, scipy, six, threadpoolctl, tzdata).
 numpy==1.26.4
 pandas==2.2.2
 scikit-learn==1.5.1
 matplotlib==3.9.1
 seaborn==0.13.2
 pyarrow==17.0.0        # parquet I/O for data/processed/*.parquet
+
+# Deliberately NOT installed: a notebook environment. `jupyterlab` + `ipykernel` were added and
+# then removed 2026-07-29 (191 MB for zero references in src/). The Phase 1 EDA it was for is
+# covered by reports/schema_catalogue.{md,csv}, and the graded figures must be files on disk that
+# the report PDF embeds — so they come from src/plots.py via run.sh, not from notebook output.
 
 # Nice-to-have, deliberately NOT installed: a gradient-boosting baseline.
 # Boosting appears nowhere in the approved proposal or the implementation plan, and xgboost==2.1.1

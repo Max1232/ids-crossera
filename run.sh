@@ -55,7 +55,8 @@ main() {
     echo "==> [Phase 4] Library baselines (Dummy / RF / SVM / Decision Tree)"
     # TODO Phase 4: "${PYTHON}" -m src.models.baselines
 
-    echo "==> [Phase 5] From-scratch models (MLP; logreg fallback)"
+    echo "==> [Phase 5] From-scratch models (logreg first, then MLP)"
+    # TODO Phase 5: "${PYTHON}" -m src.models.scratch_logreg
     # TODO Phase 5: "${PYTHON}" -m src.models.scratch_mlp
 
     echo "==> [Phase 6] Zero-shot cross-era evaluation (RQ1)"
