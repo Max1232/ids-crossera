@@ -16,9 +16,9 @@ Two things make "fit on UNSW-train only" harder than it reads, and both fail *si
   **train fold only** -- so validation statistics do not leak into standardization either.
 
 Order of numeric operations is load-bearing: impute (raw-space train-fold median) -> ``log1p``
--> z-score. Standardizing in log space is the point; z-scoring the raw heavy tails first would
-leave a scaler that maps almost all of TON_IoT into one bin (``schema_map`` FEATURE_MAP notes on
-``flow_duration``).
+-> **clip to train-fold support (upper tail, ``flow_duration`` only)** -> z-score. Standardizing
+in log space is the point; z-scoring the raw heavy tails first would leave a scaler that maps
+almost all of TON_IoT into one bin (``schema_map`` FEATURE_MAP notes on ``flow_duration``).
 """
 
 from __future__ import annotations
@@ -75,6 +75,36 @@ PASSTHROUGH_FEATURES: tuple[str, ...] = (ZERO_DURATION_FLAG,)
 # rates are included because they are quotients of columns that are themselves log-scaled.
 LOG1P_FEATURES: tuple[str, ...] = NUMERIC_FEATURES
 
+# --- Upper-tail clip, deliberately scoped to ONE column ----------------------------------
+# schema_map's FEATURE_MAP entry asks for "log1p, then clip/winsorize the TON_IoT tail before
+# z-scoring". This is that clip. The bound is learned from the **UNSW train fold** and nothing
+# else: winsorizing to the *target's* own tail would be target leakage, which is the whole failure
+# mode this module exists to prevent.
+#
+# WHY ONLY `flow_duration`, measured in z-units against the train fold's own maximum (2026-08-01):
+#
+#   feature         train max   TON_IoT max   overshoot   TON_IoT rows above train support
+#   flow_duration        5.75         16.93      +11.18    6,857  (3.25%)   <-- the whole problem
+#   dst_pkts             5.10          6.65       +1.55        6  (0.00%)
+#   src_pkts             6.24          7.07       +0.83        3  (0.00%)
+#   dst_bytes            3.20          3.65       +0.45        1  (0.00%)
+#   src_bytes            6.09          5.69       -0.40        0
+#   bytes_per_sec        1.83          1.45       -0.38        0
+#   pkts_per_sec         1.42          1.42       +0.00        0
+#
+# `flow_duration` overshoots by +11 sigma on 3.25% of the target; every other column overshoots by
+# under 2 sigma on a literal handful of rows. So a blanket clip would buy nothing and cost
+# information. The cause is Deviation 9: UNSW `dur` is hard-capped at 60 s by capture design while
+# TON_IoT `duration` runs to 93,517 s, so the source era simply has no support out there and a
+# UNSW-fitted scaler is being asked to extrapolate three orders of magnitude.
+#
+# DO NOT extend this to the LOWER tail. TON_IoT sits below the train-fold minimum on 50,872 rows
+# of `src_bytes` (24.1%) and 17,094 of `src_pkts` -- those are genuine zero-byte / zero-packet
+# flows, and UNSW *structurally cannot* contain them (`sbytes` has a 28 B floor and is never 0,
+# §4.6). That gap is a real cross-era difference and one of the findings RQ1 is meant to surface.
+# Clipping it would delete a result and call it preprocessing.
+CLIP_UPPER_FEATURES: tuple[str, ...] = ("flow_duration",)
+
 # The `split` tags written by schema_map.build_common_frames(). The UNSW pair is spelled there as
 # string literals; they are repeated once here and then *validated* against the delivered frame in
 # load_source(), so a divergence raises instead of filtering to an empty (or over-full) frame.
@@ -100,9 +130,14 @@ class Preprocessor:
       ``-`` in ``service`` is *not* missing: schema_map keeps it as a real level ("Zeek detected
       no application protocol"), it is modal on both sides, and it is one-hot encoded like any
       other level.
-    * ``means_`` / ``scales_`` -- z-score parameters computed **after** ``log1p``, so
-      standardization lives in log space. A zero-variance column takes scale 1.0 and comes out
-      as a constant 0 rather than a NaN.
+    * ``clip_upper_`` -- per-column upper bound in **log space**, learned as the train fold's own
+      maximum, for ``CLIP_UPPER_FEATURES`` only. Clipping the fit data at its own maximum is a
+      no-op by construction, so this changes nothing in-distribution and leaves ``means_`` /
+      ``scales_`` bit-identical; it only bites on frames that exceed the source era's support --
+      in practice TON_IoT ``flow_duration``, which reaches +16.9 sigma unclipped.
+    * ``means_`` / ``scales_`` -- z-score parameters computed **after** ``log1p`` (and after the
+      clip, which is inert on the fit data), so standardization lives in log space. A
+      zero-variance column takes scale 1.0 and comes out as a constant 0 rather than a NaN.
     * ``encoder_`` -- a ``OneHotEncoder`` with a fixed vocabulary and ``handle_unknown="ignore"``.
       A level absent from the fit (UNSW-test's train-only/test-only ``state`` codes, or any
       TON_IoT level the source era never showed) encodes as all-zeros: no error, and critically
@@ -117,7 +152,9 @@ class Preprocessor:
         self.categorical_features_: tuple[str, ...] = tuple(CATEGORICAL_FEATURES)
         self.passthrough_features_: tuple[str, ...] = tuple(PASSTHROUGH_FEATURES)
         self.log1p_features_: tuple[str, ...] = tuple(LOG1P_FEATURES)
+        self.clip_upper_features_: tuple[str, ...] = tuple(CLIP_UPPER_FEATURES)
         self.impute_values_: dict[str, float] = {}
+        self.clip_upper_: dict[str, float] = {}
         self.means_: np.ndarray | None = None
         self.scales_: np.ndarray | None = None
         self.encoder_: OneHotEncoder | None = None
@@ -144,7 +181,23 @@ class Preprocessor:
             col: float(value) for col, value in zip(self.numeric_features_, medians)
         }
 
-        numeric = self._numeric_block(frame)
+        # Learn the upper clip bound from the train fold, in log space, with no clip yet applied.
+        # Clearing it first matters on a re-fit: a stale bound from a previous fit would silently
+        # truncate the very data we are about to learn the new bound from.
+        self.clip_upper_ = {}
+        unclipped = self._numeric_block(frame)
+        indices = {col: i for i, col in enumerate(self.numeric_features_)}
+        for col in self.clip_upper_features_:
+            if col not in indices:
+                raise ValueError(
+                    f"CLIP_UPPER_FEATURES names {col!r}, which is not in NUMERIC_FEATURES "
+                    f"{list(self.numeric_features_)} -- schema_map and the clip list disagree"
+                )
+            self.clip_upper_[col] = float(unclipped[:, indices[col]].max())
+
+        # Clipping the fit data at its own maximum is a no-op, so means_/scales_ are unaffected;
+        # the call is written this way so the fit and transform paths share one code path.
+        numeric = self._apply_clip(unclipped)
         self.means_ = numeric.mean(axis=0)
         deviations = numeric.std(axis=0, ddof=0)
         # A constant column (scale 0) would divide to NaN/inf. Scale 1.0 leaves it at a constant
@@ -217,6 +270,14 @@ class Preprocessor:
             raise TypeError(f"{path} does not hold a Preprocessor (got {type(obj).__name__})")
         if not obj._fitted:
             raise ValueError(f"{path} holds an unfitted Preprocessor")
+        # A pickle written before the upper clip existed would silently transform TON_IoT without
+        # it -- the same class of quiet wrongness the clip was added to fix. Fail loudly instead;
+        # the artifact is a build product, so rebuilding is free.
+        if not hasattr(obj, "clip_upper_"):
+            raise ValueError(
+                f"{path} predates CLIP_UPPER_FEATURES and would transform without the upper "
+                "clip. Rebuild it: `python -m src.preprocess`."
+            )
         return obj
 
     # --- Internals ----------------------------------------------------------------------
@@ -295,7 +356,42 @@ class Preprocessor:
             block[:, log_mask] = np.log1p(selected)
         if not np.isfinite(block).all():
             raise ValueError("numeric block is non-finite after log1p")
+        return self._apply_clip(block)
+
+    def _apply_clip(self, block: np.ndarray) -> np.ndarray:
+        """Clip ``CLIP_UPPER_FEATURES`` to the train-fold upper bound, in log space.
+
+        Inert during ``fit`` (the bound *is* the fit data's maximum) and inert on any frame that
+        stays inside the source era's support. Its only job is to stop a UNSW-fitted scaler from
+        extrapolating onto TON_IoT durations that UNSW's 60 s capture cap made unobservable.
+        """
+        if not self.clip_upper_:
+            return block
+        block = block.copy()
+        for col, upper in self.clip_upper_.items():
+            index = self.numeric_features_.index(col)
+            np.minimum(block[:, index], upper, out=block[:, index])
         return block
+
+    def clipped_fraction(self, X: Any) -> dict[str, float]:
+        """Fraction of rows the clip actually binds on, per clipped column.
+
+        Reported rather than hidden: the clip discards how far past 60 s a TON_IoT flow ran, and
+        that loss belongs in the report as a stated preprocessing decision (it is ~3.25% of the
+        target set) instead of sitting silently inside a transform.
+        """
+        if not self._fitted:
+            raise RuntimeError("clipped_fraction called before fit")
+        frame = self._require_columns(X)
+        saved, self.clip_upper_ = self.clip_upper_, {}
+        try:
+            unclipped = self._numeric_block(frame)
+        finally:
+            self.clip_upper_ = saved
+        return {
+            col: float((unclipped[:, self.numeric_features_.index(col)] > upper).mean())
+            for col, upper in self.clip_upper_.items()
+        }
 
     def _categorical_block(self, frame: pd.DataFrame) -> np.ndarray:
         """Categoricals as a plain string array.
@@ -401,6 +497,11 @@ def _report(preprocessor: Preprocessor, frames: dict[str, pd.DataFrame]) -> None
         preprocessor.categorical_features_, preprocessor.encoder_.categories_
     ):
         print(f"        {column}: {list(levels)}")
+    for column, upper in preprocessor.clip_upper_.items():
+        print(
+            f"    upper clip (log space, train-fold max): {column} <= {upper:.4f} "
+            f"(raw {np.expm1(upper):,.2f})"
+        )
 
     reference: list[str] | None = None
     for name, frame in frames.items():
@@ -412,9 +513,11 @@ def _report(preprocessor: Preprocessor, frames: dict[str, pd.DataFrame]) -> None
             raise RuntimeError(f"{name}: feature columns diverged from the train fold")
         finite = bool(np.isfinite(matrix.to_numpy()).all())
         normal = float((frame[LABEL_COL] == 0).mean())
+        clipped = preprocessor.clipped_fraction(frame)
+        clip_note = "  ".join(f"{col}_clipped={share:.2%}" for col, share in clipped.items())
         print(
             f"    {name:<10} n={len(frame):>9,}  cols={matrix.shape[1]:>3}  "
-            f"normal={normal:6.2%}  finite={finite}"
+            f"normal={normal:6.2%}  finite={finite}  {clip_note}"
         )
 
 
