@@ -12,9 +12,18 @@ from typing import Any
 
 from .config import METRICS_CSV, RANDOM_SEED
 
+# The ten original columns are FROZEN — never reorder or rename them. `log_metrics()` writes the
+# header only when the file is empty, so any change after the first logged run silently misaligns
+# every existing row. The four appended columns landed in Phase 2 (before Phase 4 logs anything)
+# for exactly that reason:
+#   balanced_accuracy, macro_f1  -- prevalence-robust cross-checks Phase 6 needs, because the two
+#                                   test sets do not share a class balance (45% vs 24% normal).
+#   n_test, positive_rate        -- record the class balance each row was measured against, so a
+#                                   delta can never be read without the prevalence it was taken at.
 METRICS_HEADER = [
     "run_id", "model", "regime", "seed",
     "accuracy", "precision", "recall", "f1", "roc_auc", "notes",
+    "balanced_accuracy", "macro_f1", "n_test", "positive_rate",
 ]
 
 

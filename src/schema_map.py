@@ -26,6 +26,20 @@ Two delivery facts that bite any code reading the raw files (§4.1):
 
 from __future__ import annotations
 
+import argparse
+
+import numpy as np
+import pandas as pd
+
+from .config import (
+    TONIOT_COMMON,
+    TONIOT_CSV,
+    UNSW_COMMON,
+    UNSW_TEST_CSV,
+    UNSW_TRAIN_CSV,
+    set_seeds,
+)
+
 # --- Shared feature subspace -----------------------------------------------------------
 # concept -> (unsw_column, toniot_column). Each pairing was checked against the delivered
 # distributions; §1 records the per-pairing verdict. Summary of what Phase 2 owes each one:
@@ -144,6 +158,19 @@ DROP_COLUMNS: tuple[str, ...] = (
 # before encoding, or fit with handle_unknown="infrequent_if_exist" (§4.10).
 RARE_BUCKET = "other"
 
+# The kept levels for the two lexically-alignable categoricals. Anything outside them becomes
+# RARE_BUCKET. Both sets come straight from §3.1 / §3.2 and are deliberately small:
+#   SHARED_PROTOCOLS -- TON_IoT's entire vocabulary, all three present in UNSW. Everything else is
+#                       a UNSW-only Argus name the model cannot exercise cross-era. Note the
+#                       hazard this creates and which README.md's Limitations section owns: the
+#                       18.31% of UNSW train rows that land in `other` are 91% attack, and 0% of
+#                       TON_IoT rows land there -- hence the `proto` ablation in Phase 6.
+#   SHARED_SERVICES  -- the five levels common to both sides, covering 93.34% / 95.21% / 99.79% of
+#                       the three splits. `-` IS A LEVEL ("Zeek detected no application protocol"),
+#                       modal on both sides; it is never imputed as missing.
+SHARED_PROTOCOLS: frozenset[str] = frozenset({"tcp", "udp", "icmp"})
+SHARED_SERVICES: frozenset[str] = frozenset({"-", "dns", "http", "ftp", "ssl"})
+
 # --- UNSW `state` <-> TON_IoT `conn_state` collapse ------------------------------------
 # THE TWO RAW VOCABULARIES SHARE ZERO TOKENS: UNSW ships Argus transaction states, TON_IoT ships
 # Zeek `conn_state` codes (§3.3). There is nothing to align lexically, so this hand-written
@@ -214,6 +241,16 @@ STATE_COLLAPSE: dict[str, dict[str, str]] = {
 # `normal` with label = 1, or an attack family with label = 0).
 BINARY_LABEL_COL = {"unsw": "label", "toniot": "label"}
 
+# The per-dataset multiclass column that SHARED_FAMILIES is keyed on. Named here rather than
+# inlined in build_common_frames() so the two spellings live next to the map that consumes them:
+# UNSW calls it `attack_cat` with capitalized values, TON_IoT calls it `type` with lower-case ones
+# (§3.5). Both frames emit the harmonized result as FAMILY_LABEL_COL.
+MULTICLASS_LABEL_COL = {"unsw": "attack_cat", "toniot": "type"}
+FAMILY_LABEL_COL = "family"
+
+# Which side of each FEATURE_MAP / STATE_COLLAPSE / SHARED_FAMILIES pair a dataset reads.
+SIDES: tuple[str, ...] = ("unsw", "toniot")
+
 # Shared attack-family map for per-family analysis. Maps each dataset's multiclass column
 # (UNSW `attack_cat`, TON_IoT `type`) into a common family vocabulary. Taken from §4.4.
 #
@@ -266,6 +303,166 @@ SHARED_FAMILIES: dict[str, dict[str, str | None]] = {
 }
 
 
+# --- Harmonized output schema ----------------------------------------------------------
+# The exact column list both parquets carry, in order. Identical on both sides by construction --
+# that is the whole point of the shared subspace, and Phase 3's Preprocessor is fit on the UNSW
+# frame and applied unchanged to the TON_IoT one, so any divergence here is a Phase 3 crash.
+#
+# `split` is carried on BOTH frames even though only UNSW needs it: UNSW_COMMON is the
+# concatenation of the two delivered partitions (train 175,341 + test 82,332) and Phase 3 must be
+# able to fit on train alone, while TON_IoT ships as one file and takes the constant "full".
+# Keeping the column on both sides is what preserves the identical-schema guarantee above.
+CATEGORICAL_FEATURES: tuple[str, ...] = ("protocol", "service", "conn_state")
+NUMERIC_FEATURES: tuple[str, ...] = (
+    "flow_duration", "src_bytes", "dst_bytes", "src_pkts", "dst_pkts", *DERIVED_FEATURES,
+)
+COMMON_COLUMNS: tuple[str, ...] = (
+    *NUMERIC_FEATURES,
+    *CATEGORICAL_FEATURES,
+    ZERO_DURATION_FLAG,
+    "label",
+    FAMILY_LABEL_COL,
+    "split",
+)
+
+TONIOT_SPLIT = "full"
+
+
+def _read_raw(path) -> pd.DataFrame:
+    """Read one delivered CSV. ``utf-8-sig`` is mandatory -- all three carry a BOM (§4.1)."""
+    return pd.read_csv(path, encoding="utf-8-sig", low_memory=False)
+
+
+def _collapse_protocol(values: pd.Series) -> pd.Series:
+    """Collapse 133 Argus protocol names / 3 Zeek ones to {tcp, udp, icmp, other} (§3.1)."""
+    normalized = values.astype("string").str.strip().str.lower()
+    return normalized.where(normalized.isin(SHARED_PROTOCOLS), RARE_BUCKET)
+
+
+def _collapse_service(values: pd.Series) -> pd.Series:
+    """Collapse `service` to {-, dns, http, ftp, ssl, other} (§3.2).
+
+    Splits TON_IoT's ``;``-joined multi-valued cells (Zeek joins concurrently-detected services,
+    e.g. ``smb;gssapi``) and keeps the first token, or the one-hot gains a phantom level. ``-`` is
+    a real level meaning "no application protocol detected" and survives the collapse untouched --
+    it is the modal value on both sides and must never be treated as missing.
+    """
+    normalized = (
+        values.astype("string").str.strip().str.lower().str.split(";").str[0]
+        .str.strip().astype("string")  # .str.split(...).str[0] falls back to object dtype
+    )
+    return normalized.where(normalized.isin(SHARED_SERVICES), RARE_BUCKET)
+
+
+def _collapse_state(values: pd.Series, side: str) -> pd.Series:
+    """Map Argus `state` / Zeek `conn_state` through STATE_COLLAPSE (§4.5).
+
+    The two raw vocabularies share zero tokens, so this map is the only thing that makes the
+    concept comparable at all. It is exhaustive over every delivered level on both sides, so an
+    unseen level is a data-integrity failure and RAISES rather than falling into RARE_BUCKET --
+    silently bucketing it would hide exactly the kind of vocabulary drift this project measures.
+    """
+    mapping = STATE_COLLAPSE[side]
+    normalized = values.astype("string").str.strip()
+    unknown = sorted(set(normalized.dropna().unique()) - set(mapping))
+    if unknown:
+        raise ValueError(
+            f"{side}: STATE_COLLAPSE has no entry for delivered state level(s) {unknown}. "
+            "Add them to schema_map.STATE_COLLAPSE deliberately -- do not bucket them."
+        )
+    return normalized.map(mapping).astype("string")
+
+
+def _map_families(values: pd.Series, side: str) -> pd.Series:
+    """Map the multiclass column into the shared family vocabulary (§4.4).
+
+    Levels with a genuine counterpart become one of {normal, dos, scanning, backdoor}; the levels
+    explicitly mapped to ``None`` become NA and are excluded from the per-family analysis. A level
+    that is in neither group RAISES -- that is the whole reason SHARED_FAMILIES names every
+    delivered level, since the previous version's plural ``Backdoors`` key failed silently.
+    """
+    mapping = SHARED_FAMILIES[side]
+    normalized = values.astype("string").str.strip()
+    unknown = sorted(set(normalized.dropna().unique()) - set(mapping))
+    if unknown:
+        raise ValueError(
+            f"{side}: SHARED_FAMILIES has no entry for delivered "
+            f"{MULTICLASS_LABEL_COL[side]} level(s) {unknown}. Map them explicitly (to a shared "
+            "family, or to None to exclude them) -- do not bucket them."
+        )
+    return normalized.map(mapping).astype("string")
+
+
+def _harmonize(raw: pd.DataFrame, side: str, split: str) -> pd.DataFrame:
+    """Take one raw delivered frame to the shared subspace. Steps 2-6 of build_common_frames()."""
+    if side not in SIDES:
+        raise ValueError(f"side must be one of {SIDES}, got {side!r}")
+    column_index = SIDES.index(side)
+
+    label_col = BINARY_LABEL_COL[side]
+    multiclass_col = MULTICLASS_LABEL_COL[side]
+
+    # --- Step 2. Drop by RAW name, BEFORE any rename. ----------------------------------
+    # This ordering is load-bearing, not stylistic: TON_IoT's raw payload-byte columns
+    # `src_bytes`/`dst_bytes` are spelled identically to FEATURE_MAP's harmonized concept keys.
+    # Renaming first would make this drop delete the byte features it had just built, silently,
+    # because every name involved is legitimate on one reading or the other.
+    df = raw.drop(columns=[col for col in DROP_COLUMNS if col in raw.columns])
+
+    # --- Step 3. Rename each FEATURE_MAP pair to its shared concept name. ---------------
+    renames = {pair[column_index]: concept for concept, pair in FEATURE_MAP.items()}
+    missing = sorted((set(renames) | {label_col, multiclass_col}) - set(df.columns))
+    if missing:
+        raise ValueError(f"{side}: expected column(s) absent from the delivered file: {missing}")
+    df = df.rename(columns=renames)
+
+    # The guard the README asks for by name. If the drop and the rename ever swap places this is
+    # the only thing standing between the pipeline and two silently-deleted byte features.
+    assert {"src_bytes", "dst_bytes"} <= set(df.columns), (
+        f"{side}: byte features destroyed -- DROP_COLUMNS must be applied before the "
+        "FEATURE_MAP rename, not after"
+    )
+
+    out = pd.DataFrame(index=df.index)
+
+    # --- Step 4. Categorical normalization. --------------------------------------------
+    out["protocol"] = _collapse_protocol(df["protocol"])
+    out["service"] = _collapse_service(df["service"])
+    out["conn_state"] = _collapse_state(df["conn_state"], side)
+
+    # --- Numerics carried through as-is (log1p / scaling is Phase 3's job, not Phase 2's). ---
+    duration = pd.to_numeric(df["flow_duration"], errors="raise").astype("float64")
+    out["flow_duration"] = duration
+    for col in ("src_bytes", "dst_bytes", "src_pkts", "dst_pkts"):
+        out[col] = pd.to_numeric(df[col], errors="raise").astype("int64")
+
+    # --- Step 5. Derived rates + the zero-duration flag. --------------------------------
+    # An explicit 0.0 on the divide-by-zero branch: not NaN (unrepresentable downstream) and not a
+    # 1e-6 epsilon (which would manufacture astronomical rates). The flag is then carried as its
+    # OWN named feature, because `duration == 0` inverts across eras -- 1.52% of UNSW rows, 99.0%
+    # of them normal, against 28.44% of TON_IoT rows, only 21.2% normal (§4.7). Left implicit
+    # inside the guard, that sentinel becomes a learned normal-class marker in 2015 that fires on
+    # 60,013 target rows meaning the opposite. Named, it is a reportable and ablatable finding.
+    nonzero = duration.to_numpy() > 0
+    total_bytes = (out["src_bytes"] + out["dst_bytes"]).to_numpy(dtype="float64")
+    total_pkts = (out["src_pkts"] + out["dst_pkts"]).to_numpy(dtype="float64")
+    seconds = duration.to_numpy(dtype="float64")
+    out["bytes_per_sec"] = np.where(nonzero, total_bytes / np.where(nonzero, seconds, 1.0), 0.0)
+    out["pkts_per_sec"] = np.where(nonzero, total_pkts / np.where(nonzero, seconds, 1.0), 0.0)
+    out[ZERO_DURATION_FLAG] = (~nonzero).astype("int8")
+
+    # --- Step 6. Labels. ----------------------------------------------------------------
+    label = pd.to_numeric(df[label_col], errors="raise").astype("int8")
+    unexpected = sorted(set(label.unique()) - {0, 1})
+    if unexpected:
+        raise ValueError(f"{side}: `{label_col}` carries non-binary value(s) {unexpected}")
+    out["label"] = label
+    out[FAMILY_LABEL_COL] = _map_families(df[multiclass_col], side)
+
+    out["split"] = pd.Series(split, index=df.index, dtype="string")
+    return out.loc[:, list(COMMON_COLUMNS)].reset_index(drop=True)
+
+
 def build_common_frames() -> None:
     """Load raw datasets, apply FEATURE_MAP/DROP_COLUMNS/label maps, emit harmonized parquet.
 
@@ -282,5 +479,69 @@ def build_common_frames() -> None:
     6. Map labels through ``BINARY_LABEL_COL`` and ``SHARED_FAMILIES`` (unmapped level -> raise).
 
     Writes ``data/processed/unsw_common.parquet`` and ``toniot_common.parquet``.
+
+    The two UNSW partitions are concatenated into the single ``unsw_common.parquet`` that
+    ``config`` names, tagged by the ``split`` column ("train" / "test"); the TON_IoT frame takes
+    the constant "full".
     """
-    raise NotImplementedError("Phase 2: feature alignment")
+    set_seeds()
+
+    unsw = pd.concat(
+        [
+            _harmonize(_read_raw(UNSW_TRAIN_CSV), "unsw", "train"),
+            _harmonize(_read_raw(UNSW_TEST_CSV), "unsw", "test"),
+        ],
+        ignore_index=True,
+    )
+    toniot = _harmonize(_read_raw(TONIOT_CSV), "toniot", TONIOT_SPLIT)
+
+    if list(unsw.columns) != list(toniot.columns):
+        raise ValueError(
+            "harmonized frames diverged: "
+            f"unsw={list(unsw.columns)} toniot={list(toniot.columns)}"
+        )
+
+    UNSW_COMMON.parent.mkdir(parents=True, exist_ok=True)
+    unsw.to_parquet(UNSW_COMMON, index=False)
+    toniot.to_parquet(TONIOT_COMMON, index=False)
+
+
+def _summarize(name: str, path) -> None:
+    """One-screen build report -- shapes, balance, and the two cross-era hazards, per side.
+
+    Reads the emitted file back rather than reusing the in-memory frame, so the summary doubles
+    as a round-trip check that the parquet Phase 3 will open is actually loadable.
+    """
+    frame = pd.read_parquet(path)
+    normal_share = float((frame["label"] == 0).mean())
+    print(f"{name}: {frame.shape[0]:,} rows x {frame.shape[1]} cols -> {path}")
+    for split, part in frame.groupby("split", observed=True):
+        share = float((part["label"] == 0).mean())
+        print(f"    split={split:<5} n={len(part):>9,}  normal={share:6.2%}")
+    print(f"    normal share overall {normal_share:6.2%}   "
+          f"{ZERO_DURATION_FLAG}={frame[ZERO_DURATION_FLAG].mean():6.2%}   "
+          f"family-mapped={frame[FAMILY_LABEL_COL].notna().mean():6.2%}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m src.schema_map",
+        description="Phase 2: build the harmonized UNSW / TON_IoT parquets.",
+    )
+    parser.add_argument(
+        "--build", action="store_true",
+        help="build data/processed/{unsw,toniot}_common.parquet from data/raw/",
+    )
+    args = parser.parse_args(argv)
+    if not args.build:
+        parser.print_help()
+        return 0
+
+    build_common_frames()
+    _summarize("unsw_common", UNSW_COMMON)
+    _summarize("toniot_common", TONIOT_COMMON)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

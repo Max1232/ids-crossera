@@ -47,10 +47,10 @@ main() {
     cd "${SCRIPT_DIR}"
 
     echo "==> [Phase 2] Feature alignment + harmonized parquet"
-    # TODO Phase 2: "${PYTHON}" -m src.schema_map --build
+    "${PYTHON}" -m src.schema_map --build
 
     echo "==> [Phase 3] Fit preprocessor on UNSW-train, apply to UNSW-test + TON_IoT"
-    # TODO Phase 3: "${PYTHON}" -m src.preprocess
+    "${PYTHON}" -m src.preprocess
 
     echo "==> [Phase 4] Library baselines (Dummy / RF / SVM / Decision Tree)"
     # TODO Phase 4: "${PYTHON}" -m src.models.baselines

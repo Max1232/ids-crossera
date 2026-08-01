@@ -28,6 +28,11 @@ TONIOT_CSV: Path = DATA_RAW / "Train_Test_Network.csv"
 UNSW_COMMON: Path = DATA_PROCESSED / "unsw_common.parquet"
 TONIOT_COMMON: Path = DATA_PROCESSED / "toniot_common.parquet"
 
+# Fitted preprocessor (Phase 3). Lives under data/processed/ so `.gitignore`'s
+# `data/processed/*` rule covers it -- the artifact is a build product of `run.sh`, reproducible
+# from the raw CSVs and the seed above, and binaries are never committed to this repo.
+PREPROCESSOR: Path = DATA_PROCESSED / "preprocessor.joblib"
+
 
 def set_seeds(seed: int = RANDOM_SEED) -> None:
     """Seed stdlib ``random`` and numpy. Call once at the start of every entry point."""

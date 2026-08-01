@@ -1,1 +1,1 @@
-run_id,model,regime,seed,accuracy,precision,recall,f1,roc_auc,notes
+run_id,model,regime,seed,accuracy,precision,recall,f1,roc_auc,notes,balanced_accuracy,macro_f1,n_test,positive_rate
