@@ -68,15 +68,34 @@ that level is effectively untrained yet active cross-era.
 
 ## Status
 
-**Phases 0 and 1 are complete.** All three CSVs are extracted and verified — MD5s and row counts in
+**Phases 0–4 are complete.** All three CSVs are extracted and verified — MD5s and row counts in
 [`data/README.md`](data/README.md) — and the schema comparison, measured from the delivered files
 rather than quoted from documentation, is in `reports/schema_catalogue.md` with a machine-readable
 `reports/schema_catalogue.csv` companion (one row per delivered column).
 
-`src/schema_map.py`'s mapping constants are corrected against that catalogue; `build_common_frames()`
-is the pending Phase 2 work. The pipeline modules are still stubs that raise `NotImplementedError`,
-each tagged with the phase that fills it in (see [Implementation steps](#implementation-steps)), so
-`run.sh` walks the phase sequence without yet producing outputs.
+`src/schema_map.py`'s mapping constants are corrected against that catalogue, and
+`build_common_frames()` emits both harmonized parquets (UNSW 257,673 × 14, TON_IoT 211,043 × 14).
+`src/preprocess.py`'s `Preprocessor` is fit on the UNSW **train fold only** and serialized to
+`data/processed/preprocessor.joblib`, giving the 22-column feature schema every later phase consumes;
+`fit()` raises rather than silently accepting UNSW-test, TON_IoT, or the concatenated frame.
+`src/models/baselines.py` trains the four classical baselines and records the in-distribution ceiling
+on UNSW-test:
+
+| Model | F1 | ROC-AUC |
+| --- | --- | --- |
+| Random Forest | **0.9145** | **0.9788** |
+| Decision Tree | 0.9099 | 0.9648 |
+| Linear SVM (`LinearSVC`) | 0.7883 | 0.8846 |
+| Dummy (majority-class floor) | 0.7102 | 0.5000 |
+
+`./run.sh` reproduces Phases 2 → 4 from the raw CSVs in under 20 seconds. The remaining pipeline
+modules are still stubs that raise `NotImplementedError`, each tagged with the phase that fills it in
+(see [Implementation steps](#implementation-steps)), and `run.sh` walks past them printing banners.
+
+Read the Dummy row as the warning it is: UNSW-test is 55.06% *attack*, so a `most_frequent`
+classifier predicts "attack" everywhere and posts F1 = 0.7102 at recall 1.0 with **ROC-AUC exactly
+0.5000**. It has no discriminative power whatsoever. That is why this project's headline is F1 and
+ROC-AUC together and never accuracy.
 
 ## Setup
 
@@ -99,6 +118,36 @@ Datasets are **not** committed (large; git-ignored). Download them first — see
 
 Reproducibility: a single global `RANDOM_SEED = 42` (see `src/config.py`) is used for numpy,
 stdlib random, and all splits; dependencies are pinned in `requirements.txt`.
+
+`run.sh` uses `./.venv/bin/python` when that venv exists, so a fresh clone needs no activation step;
+set `PYTHON=` to override it (`PYTHON=python3.12 ./run.sh`).
+
+## Metrics log
+
+`reports/metrics.csv` is the committed run log, and it is **committed on purpose**: reproducing a
+run is meant to be a `git diff`, not a judgement call. So `evaluate.log_metrics()` **upserts** rather
+than appends — it keys each row on `(run_id, model, regime)`, replaces or inserts the incoming row,
+and rewrites the whole file under the frozen 14-column header sorted by that key. Running `./run.sh`
+twice therefore leaves the file byte-identical instead of doubling every row. The 14 columns are
+frozen: adding one is safe (older rows carry forward by name), renaming or reordering one blanks that
+field on every row already logged.
+
+That key is also a **convention every later phase has to honour: one `run_id` per experimental
+condition.** `model` and `regime` do not identify a run on their own, so anything that changes *what
+was measured* without changing those two must encode itself into `run_id` — otherwise it overwrites
+the row it should be sitting next to:
+
+```
+phase4-baselines             # in-distribution ceiling
+phase6-crossera              # zero-shot cross-era, full feature set
+phase6-crossera-no_proto     # same model + regime, `proto` ablated
+phase7-recovery-f0.05        # same model + regime, 5% fine-tune budget
+phase7-recovery-f0.25        # ... and 25%
+```
+
+Without those suffixes each `proto` ablation would land on top of its unablated row and the whole
+recovery curve would collapse to whichever fraction ran last. `run_id` is deliberately a fixed label
+and never a timestamp — a timestamp would make every re-run a spurious diff.
 
 ## Repo layout
 
@@ -178,9 +227,10 @@ report PDF embeds, so they come from `src/plots.py` via `run.sh` in Phase 9 inst
 **Do this first — extend `METRICS_HEADER` in `src/evaluate.py`.** Add `balanced_accuracy`,
 `macro_f1`, `n_test` and `positive_rate` to the existing ten columns: the first two are the
 prevalence-robust cross-checks Phase 6 needs, the last two record the class balance each row was
-measured against. It belongs here rather than in Phase 6 because `reports/metrics.csv` is header-only
-today and `log_metrics()` writes the header *only* when the file is empty — change it before Phase 4
-logs its first run and it is free, change it afterwards and every existing row silently misaligns.
+measured against. It belongs here rather than in Phase 6 because `reports/metrics.csv` was
+header-only at the time: extending the header before Phase 4 logged its first run was free, whereas
+afterwards it means every already-logged row carries a blank in the new columns (see
+[Metrics log](#metrics-log) for what the frozen header does and does not tolerate).
 
 The two datasets don't share a schema. Build an explicit mapping to a shared subspace in
 `src/schema_map.py`. Verdicts are what `reports/schema_catalogue.md` measured, not what the docs

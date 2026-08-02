@@ -1,1 +1,5 @@
 run_id,model,regime,seed,accuracy,precision,recall,f1,roc_auc,notes,balanced_accuracy,macro_f1,n_test,positive_rate
+phase4-baselines,decision_tree,in_distribution,42,0.898363,0.888392,0.932564,0.909942,0.964843,"tuned on UNSW val fold 2026-08-01; params: max_depth=None, min_samples_leaf=20",0.894512,0.896654,82332,0.5506
+phase4-baselines,dummy,in_distribution,42,0.5506,0.5506,1.0,0.710177,0.5,"tuned on UNSW val fold 2026-08-01; majority-class floor, no tuning surface",0.5,0.355088,82332,0.5506
+phase4-baselines,random_forest,in_distribution,42,0.902383,0.882929,0.948469,0.914526,0.978753,"tuned on UNSW val fold 2026-08-01; params: max_depth=20, n_estimators=100",0.897194,0.900372,82332,0.5506
+phase4-baselines,svm,in_distribution,42,0.75051,0.739726,0.843753,0.788322,0.884575,tuned on UNSW val fold 2026-08-01; params: C=0.1,0.740012,0.742287,82332,0.5506
