@@ -68,7 +68,15 @@ that level is effectively untrained yet active cross-era.
 
 ## Status
 
-**Phases 0–4 are complete.** All three CSVs are extracted and verified — MD5s and row counts in
+**Phases 0–4 are complete:** Phase 0 repo scaffold and pinned environment, Phase 1 data download and
+first look, Phase 2 feature alignment, Phase 3 preprocessing, Phase 4 in-distribution baselines.
+Phases 5–7 and 9 are the remaining core (Phase 8 is the optional stretch) — see
+[Implementation steps](#implementation-steps) for what each one owes.
+
+Where the delivered build departs from the approved proposal, and why, is recorded in
+[`deviations.md`](deviations.md).
+
+All three CSVs are extracted and verified — MD5s and row counts in
 [`data/README.md`](data/README.md) — and the schema comparison, measured from the delivered files
 rather than quoted from documentation, is in `reports/schema_catalogue.md` with a machine-readable
 `reports/schema_catalogue.csv` companion (one row per delivered column).

@@ -18,5 +18,20 @@ venv/
 # Notebooks
 .ipynb_checkpoints/
 
+# Local Claude Code guidance — intentionally not shared with collaborators or graders.
+# Anything a collaborator must not get wrong belongs in README.md instead.
+CLAUDE.md
+.claude/
+
+# Course handouts — the instructor's material, not ours to redistribute, and this repo
+# goes public before 2026-08-16. Keep locally for reference; never commit.
+AI_Sum26_ProjectDescription*.pdf
+*ProjectDescription*.pdf
+
+# Project proposal final, moved from the vault to the repo for convenience. Stays ignored:
+# the approved proposal is the frozen text submitted to Canvas, and this repo goes public.
+# `deviations.md` is the tracked, public-facing record of where the build departs from it.
+Proposal-Final.md
+
 # OS / editor cruft
 .DS_Store
