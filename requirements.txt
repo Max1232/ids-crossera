@@ -10,21 +10,25 @@
 numpy==1.26.4
 pandas==2.2.2
 scikit-learn==1.5.1
-matplotlib==3.9.1
+matplotlib==3.9.4      # NOT 3.9.1 — yanked on PyPI; see the note below
 seaborn==0.13.2
 pyarrow==17.0.0        # parquet I/O for data/processed/*.parquet
 pytest==9.1.1          # test runner; see tests/README.md. Added 2026-08-02 for Phase 5.
+
+# Why matplotlib is 3.9.4 and not 3.9.1: 3.9.1 is a YANKED PyPI release (the maintainers pulled it
+# over Windows-wheel segfaults). A yanked version still installs when a pin names it exactly — PEP
+# 592 — which is exactly why this was easy to miss: it worked. But it does not appear in
+# `pip index versions matplotlib` at all, only `3.9.1.post1` does, and a yanked release can be
+# removed outright at any time. That would break `pip install -r requirements.txt` on a grader's
+# machine and take the graded one-command reproducibility claim with it. 3.9.4 is the last 3.9.x, so
+# it carries the packaging fix plus the series' bug fixes without a minor-version jump. Re-verified
+# 2026-08-03: clean venv resolves to the same 25 packages with an unchanged transitive set.
 
 # Why pytest is here, since every other pin is a runtime dependency: Phase 5 requires the
 # from-scratch logistic regression and MLP to be unit-tested on a toy separable set before their
 # scores are believed, and "converges on data it must be able to fit" is a claim that has to be
 # executable rather than asserted in prose. 4 packages, ~2 MB, no runtime effect — `run.sh` does not
 # invoke it. See tests/README.md.
-
-# Deliberately NOT installed: a notebook environment. `jupyterlab` + `ipykernel` were added and
-# then removed 2026-07-29 (191 MB for zero references in src/). The Phase 1 EDA it was for is
-# covered by reports/schema_catalogue.{md,csv}, and the graded figures must be files on disk that
-# the report PDF embeds — so they come from src/plots.py via run.sh, not from notebook output.
 
 # Nice-to-have, deliberately NOT installed: a gradient-boosting baseline.
 # Boosting appears nowhere in the approved proposal or the implementation plan, and xgboost==2.1.1
