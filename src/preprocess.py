@@ -541,4 +541,20 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Re-enter through the package rather than calling the local `main()` directly. Under
+    # `python -m src.preprocess` this module is executed as `__main__`, so `Preprocessor` defined
+    # above is `__main__.Preprocessor` -- and `joblib.dump` records the class by *module path*.
+    # The artifact then only unpickles inside a process whose own `__main__` happens to bind the
+    # name `Preprocessor`, which is true by accident for `python -m src.models.baselines` (it
+    # imports it at module scope) and false for pytest, `python -c`, and every other entry point:
+    # `AttributeError: Can't get attribute 'Preprocessor' on <module '__main__'>`. Importing the
+    # package module first means `main()` runs with the class bound at `src.preprocess`, so the
+    # serialized preprocessor loads from anywhere. Phase 5's in-distribution parity test needs
+    # that; it loads the Phase 3 artifact from a pytest process.
+    #
+    # (`sys.path[0]` is the repo root under `-m`, so the import resolves. Direct
+    # `python src/preprocess.py` was never supported anyway -- the relative imports above forbid
+    # it -- so this narrows nothing.)
+    from src.preprocess import main as _packaged_main
+
+    raise SystemExit(_packaged_main())

@@ -146,7 +146,7 @@ find; clipping it would delete a result. `clipped_fraction()` reports the bind r
 in-distribution, 3.25% TON_IoT), so the discarded tail is auditable.
 **Report home:** Methods (preprocessing) — state both the clip and why the lower tail was kept.
 
-### 3.5 SVM is linear, not kernel — DONE (Phase 4, pending commit)
+### 3.5 SVM is linear, not kernel — DONE (Phase 4, commit `ffae5d7`)
 The proposal's unqualified "SVM" is satisfied by `LinearSVC`/`SGDClassifier`. A kernel SVM at
 175,341 rows needs a kernel matrix in the hundreds of GB and will not finish.
 **Delivered 2026-08-01:** `baselines.make_svm` is `LinearSVC(C=0.1, class_weight="balanced",
@@ -161,7 +161,7 @@ Nothing in Phases 4–7 needs calibrated probabilities.
 **Evidence:** in-distribution F1 0.7883 / ROC-AUC 0.8846 on UNSW-test, `reports/metrics.csv` row
 `phase4-baselines,svm,in_distribution`. **Report home:** Methods.
 
-### 3.6 Baseline tuning selects on F1 *and* ROC-AUC jointly, not F1 alone (Phase 4, pending commit)
+### 3.6 Baseline tuning selects on F1 *and* ROC-AUC jointly, not F1 alone (Phase 4, commit `ffae5d7`)
 Depth/regularization are chosen on the UNSW val fold by the **mean of val F1 and val ROC-AUC** — the
 proposal's headline pair weighted equally — with near-ties inside 0.002 resolved toward the more
 constrained model. This is worth stating because **F1 alone picks a materially worse model:** the
@@ -176,7 +176,7 @@ the cost) and the SVM to `C=0.1` (from `C=1.0`).
 SVM `C=0.1` — baked into `baselines.TUNED_PARAMS` so Phase 6 re-instantiates identical models with no
 search. **Report home:** Methods (model selection).
 
-### 3.7 Baselines are fit on the train fold, not refit on train+val (Phase 4, pending commit)
+### 3.7 Baselines are fit on the train fold, not refit on train+val (Phase 4, commit `ffae5d7`)
 The textbook move after locking hyperparameters is to refit on train+val. Not done, so that every
 phase trains on the same literal frame: refitting on the union would make Phase 4's training set
 differ from the fold the `Preprocessor` was fit on (§3.3), the val fold is still needed for Phase 5's
@@ -202,7 +202,7 @@ in the approved proposal). If a boosting baseline is ever wanted, use sklearn's
 
 ## 4. Open items against rubric claims
 
-- **One-command reproducibility — RESOLVED 2026-08-02, in the working tree pending commit.**
+- **One-command reproducibility — RESOLVED 2026-08-02, commit `ffae5d7`.**
   `run.sh` used to default `PYTHON` to bare `python3`, so a fresh clone failed with "required
   packages missing" unless the venv was activated or `PYTHON=.venv/bin/python` was passed. The error
   was clear, but the graded "one-command end-to-end run" claim leaned on it. It now defaults to
