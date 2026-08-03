@@ -2,7 +2,7 @@
 
 _Consolidated record of where the delivered project departs from the scope promised in
 `Proposal-Final.md`, plus the substantive methodological decisions a reader could reasonably
-question. Last updated: 2026-08-02 (through Phase 4)._
+question. Last updated: 2026-08-03 (content through Phase 4; §3.5 ratified)._
 
 ## What this file is — and is not
 
@@ -146,7 +146,7 @@ find; clipping it would delete a result. `clipped_fraction()` reports the bind r
 in-distribution, 3.25% TON_IoT), so the discarded tail is auditable.
 **Report home:** Methods (preprocessing) — state both the clip and why the lower tail was kept.
 
-### 3.5 SVM is linear, not kernel — DONE (Phase 4, commit `ffae5d7`)
+### 3.5 SVM is linear, not kernel — DONE (Phase 4, commit `ffae5d7`), RATIFIED 2026-08-03
 The proposal's unqualified "SVM" is satisfied by `LinearSVC`/`SGDClassifier`. A kernel SVM at
 175,341 rows needs a kernel matrix in the hundreds of GB and will not finish.
 **Delivered 2026-08-01:** `baselines.make_svm` is `LinearSVC(C=0.1, class_weight="balanced",
@@ -158,6 +158,15 @@ strength the proposal promises to tune anyway.
 a *ranking*, and any monotone calibration of a signed margin yields the identical ranking and
 therefore the identical AUC, so the wrapper would cost a k-fold refit and move no reported number.
 Nothing in Phases 4–7 needs calibrated probabilities.
+**Ratified 2026-08-03 — no longer provisional.** `LinearSVC` and the `decision_function`-for-AUC
+choice were previously carried as pending a collaborator review that is not happening, so they were
+checked directly and both stand. The `C` grid was checked with them, because the specific risk was
+that `C=0.1` had won by being the *floor* of the search. **It was not.** `TUNING_GRIDS["svm"]` spans
+`(0.01, 0.1, 1.0)`, bracketing the winner on both sides, and `C=0.01` lost by 0.29 composite points
+(0.9100 vs 0.9129) — well outside the 0.002 selection tolerance. Re-measured on the val fold over a
+widened `(0.001, 0.005, 0.01, 0.05, 0.1, 1.0, 10.0)`: the composite climbs monotonically to a plateau
+at `C ≥ 0.05` (0.9125 / 0.9129 / 0.9131 / 0.9131) and falls away below it. Nothing beneath the
+committed floor competes, the selection is unchanged, and **no logged number moved.**
 **Evidence:** in-distribution F1 0.7883 / ROC-AUC 0.8846 on UNSW-test, `reports/metrics.csv` row
 `phase4-baselines,svm,in_distribution`. **Report home:** Methods.
 

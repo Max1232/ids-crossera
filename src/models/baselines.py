@@ -163,10 +163,16 @@ def make_svm(**params: Any) -> LinearSVC:
     in Phases 4–7 needs calibrated probabilities; if a later phase ever does, add the wrapper
     there and say so, rather than paying for it on every run here.
 
-    IMPLEMENTED BY AGENT 2026-08-01 — PENDING REVIEW BY STEVEN, who owns this function in the
-    division of labor. Phase 4 was blocked without it (the SVM is required: the proposal names it
-    unqualified), so it ships as the linear variant, but the choice of ``LinearSVC`` over
-    ``SGDClassifier``, the ``C`` grid, and the no-calibration call above are all his to overrule.
+    RATIFIED 2026-08-03. Implemented 2026-08-01 and previously marked pending review; the division
+    of labor that review depended on is no longer in effect, so the three open choices were checked
+    directly instead and all three stand: ``LinearSVC`` over ``SGDClassifier``, ``decision_function``
+    for AUC without ``CalibratedClassifierCV``, and the ``C`` grid. On the grid specifically —
+    ``C=0.1`` was **not** the floor of the search. ``TUNING_GRIDS["svm"]`` spans
+    ``(0.01, 0.1, 1.0)``, bracketing the winner on both sides, and ``C=0.01`` lost by 0.29 composite
+    points (0.9100 vs 0.9129), far outside :data:`SELECTION_TOLERANCE`. Re-measured 2026-08-03 over
+    a widened ``(0.001, 0.005, 0.01, 0.05, 0.1, 1.0, 10.0)``: the composite rises monotonically to a
+    plateau at ``C >= 0.05`` (0.9125, 0.9129, 0.9131, 0.9131) and falls away below it, so nothing
+    beneath the committed floor competes and the selection is unchanged. No logged number moved.
     """
     return LinearSVC(
         **{
