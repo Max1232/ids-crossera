@@ -1,17 +1,25 @@
 # CS4100 ids-crossera — pinned dependencies (Phase 0).
 # Python 3.11 or 3.12.
 #
-# These 6 direct pins are the final set — deliberately not a `pip freeze` dump, so the file stays
+# These 7 direct pins are the final set — deliberately not a `pip freeze` dump, so the file stays
 # readable and the transitive tree stays free to resolve. Verified reproducible on Python 3.12.3:
-# `pip install -r requirements.txt` into a clean venv resolves to exactly 21 packages — these 6,
-# plus pip, plus 14 transitive (contourpy, cycler, fonttools, joblib, kiwisolver, packaging,
-# pillow, pyparsing, python-dateutil, pytz, scipy, six, threadpoolctl, tzdata).
+# `pip install -r requirements.txt` into a clean venv resolves to exactly 25 packages — these 7,
+# plus pip, plus 17 transitive (contourpy, cycler, fonttools, iniconfig, joblib, kiwisolver,
+# packaging, pillow, pluggy, pygments, pyparsing, python-dateutil, pytz, scipy, six, threadpoolctl,
+# tzdata).
 numpy==1.26.4
 pandas==2.2.2
 scikit-learn==1.5.1
 matplotlib==3.9.1
 seaborn==0.13.2
 pyarrow==17.0.0        # parquet I/O for data/processed/*.parquet
+pytest==9.1.1          # test runner; see tests/README.md. Added 2026-08-02 for Phase 5.
+
+# Why pytest is here, since every other pin is a runtime dependency: Phase 5 requires the
+# from-scratch logistic regression and MLP to be unit-tested on a toy separable set before their
+# scores are believed, and "converges on data it must be able to fit" is a claim that has to be
+# executable rather than asserted in prose. 4 packages, ~2 MB, no runtime effect — `run.sh` does not
+# invoke it. See tests/README.md.
 
 # Deliberately NOT installed: a notebook environment. `jupyterlab` + `ipykernel` were added and
 # then removed 2026-07-29 (191 MB for zero references in src/). The Phase 1 EDA it was for is
