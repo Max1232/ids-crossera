@@ -68,10 +68,10 @@ that level is effectively untrained yet active cross-era.
 
 ## Status
 
-**Phases 0–4 are complete:** Phase 0 repo scaffold and pinned environment, Phase 1 data download and
-first look, Phase 2 feature alignment, Phase 3 preprocessing, Phase 4 in-distribution baselines.
-Phases 5–7 and 9 are the remaining core (Phase 8 is the optional stretch) — see
-[Implementation steps](#implementation-steps) for what each one owes.
+**Phases 0–5 are complete:** Phase 0 repo scaffold and pinned environment, Phase 1 data download and
+first look, Phase 2 feature alignment, Phase 3 preprocessing, Phase 4 in-distribution baselines,
+Phase 5 both from-scratch models. Phases 6, 7 and 9 are the remaining core (Phase 8 is the optional
+stretch) — see [Implementation steps](#implementation-steps) for what each one owes.
 
 Where the delivered build departs from the approved proposal, and why, is recorded in
 [`deviations.md`](deviations.md).
@@ -96,8 +96,32 @@ on UNSW-test:
 | Linear SVM (`LinearSVC`) | 0.7883 | 0.8846 |
 | Dummy (majority-class floor) | 0.7102 | 0.5000 |
 
-`./run.sh` reproduces Phases 2 → 4 from the raw CSVs in under 20 seconds. The remaining pipeline
-modules are still stubs that raise `NotImplementedError`, each tagged with the phase that fills it in
+`src/models/scratch_logreg.py` and `src/models/scratch_mlp.py` are the from-scratch pair — pure
+numpy, hand-written gradients and backprop, no sklearn/torch/autograd in either model's import
+graph. Scored on the UNSW **val** fold (not UNSW-test, which stays sealed until Phase 6):
+
+| From-scratch model | F1 | ROC-AUC | vs. sklearn equivalent |
+| --- | --- | --- | --- |
+| Logistic regression (full-batch GD, 4,346 iters) | 0.8805 | 0.9337 | −0.19 F1 / −0.16 AUC points |
+| MLP `(22, 44, 22, 1)` (mini-batch SGD, 40 epochs) | 0.9351 | 0.9832 | −1.84 F1 / −0.11 AUC points |
+
+The MLP's wider F1 gap is the class weighting, not the implementation: `MLPClassifier` has no
+`class_weight` parameter, so the reference is necessarily unweighted, and the unweighted control arm
+of the same scratch model closes the gap to 0.52 F1 / 0.42 AUC points while giving up 1.3 points of
+balanced accuracy. Both models are verified by `tests/` — including a finite-difference gradient
+check on the MLP's backprop, worst relative error 2.0e-8.
+
+> **Convention, and it is inverted relative to sklearn:** on **both** from-scratch models
+> `class_weight=None` means **balanced** (inverse-frequency), not unweighted — the explicit
+> unweighted control is spelled `{0: 1.0, 1: 1.0}`. Class weights on every model from the start is a
+> project constraint, and the failure it guards against is silent, so forgetting the argument must
+> not be able to produce it.
+
+`./run.sh` reproduces Phases 2 → 4 from the raw CSVs in under 20 seconds. Phase 5 is deliberately not
+wired into it: the scratch models' `reports/metrics.csv` rows belong to Phase 6's regime run under
+its `run_id` convention, so `python -m src.models.scratch_logreg` / `scratch_mlp` print their val
+scores and log nothing. The remaining pipeline modules are still stubs that raise
+`NotImplementedError`, each tagged with the phase that fills it in
 (see [Implementation steps](#implementation-steps)), and `run.sh` walks past them printing banners.
 
 Read the Dummy row as the warning it is: UNSW-test is 55.06% *attack*, so a `most_frequent`
