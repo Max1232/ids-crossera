@@ -6,8 +6,9 @@
 #   preprocess -> baselines -> from-scratch models -> cross-era eval -> transfer -> plots
 #
 # Raw datasets must already be downloaded into data/raw/ (see data/README.md).
-# Phases 2-4 are implemented and run for real; the later steps are still placeholders
-# wired to their eventual entry point and print a banner without doing anything.
+# Phases 2-4 and 6 are implemented and run for real; the remaining steps are still
+# placeholders wired to their eventual entry point and print a banner without doing
+# anything. Phase 6 dominates the runtime (~2 min) because it re-fits every model.
 # Re-running is safe and idempotent: reports/metrics.csv is upserted on
 # (run_id, model, regime), so a second run leaves it byte-identical.
 #
@@ -79,11 +80,19 @@ main() {
     "${PYTHON}" -m src.models.baselines
 
     echo "==> [Phase 5] From-scratch models (logreg first, then MLP)"
-    # TODO Phase 5: "${PYTHON}" -m src.models.scratch_logreg
-    # TODO Phase 5: "${PYTHON}" -m src.models.scratch_mlp
+    # Deliberately not invoked: both entry points print val-fold scores and log nothing, and the
+    # scratch models' metrics.csv rows belong to Phase 6's run_id (which fits the same locked
+    # models). Running them here would double their fit cost for no logged output.
+    # Manual: "${PYTHON}" -m src.models.scratch_logreg / -m src.models.scratch_mlp
 
     echo "==> [Phase 6] Zero-shot cross-era evaluation (RQ1)"
-    # TODO Phase 6: "${PYTHON}" -m src.evaluate --regimes
+    # The primary result. Fits every Phase 4-5 model on the UNSW train fold and scores it in both
+    # regimes -- in-distribution on UNSW-test, then the SAME fitted model zero-shot on TON_IoT with
+    # no retraining and no refit of the Preprocessor -- plus the `proto` ablation as a second
+    # condition under its own run_id. ~2 minutes: the from-scratch models are re-fit from their
+    # factories on every run, once per condition, because nothing is persisted. That is deliberate
+    # -- a model cache would make this faster and stop it being a from-raw-data reproduction.
+    "${PYTHON}" -m src.evaluate --regimes
 
     echo "==> [Phase 7] Transfer-learning recovery curve (RQ2)"
     # TODO Phase 7: "${PYTHON}" -m src.transfer

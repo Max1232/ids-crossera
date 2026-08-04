@@ -63,15 +63,18 @@ to `{tcp, udp, icmp, other}`, a model learns "`other` → attack" from a bucket 
 training and **0% of rows at test time**: part of the RQ1 drop would be a learned signal going inert
 rather than attacker evolution. That is the same generator-fingerprint argument that justifies
 dropping TTL, so `proto` gets an ablation — the cross-era evaluation run once with it and once
-without. `icmp` has the mirror problem: **15 UNSW train rows** (0.01%) against 281 in TON_IoT, so
+without, both halves retrained so the two conditions are comparable (see
+[Status](#status) for the measured answer: the objection does not survive the test).
+`icmp` has the mirror problem: **15 UNSW train rows** (0.01%) against 281 in TON_IoT, so
 that level is effectively untrained yet active cross-era.
 
 ## Status
 
-**Phases 0–5 are complete:** Phase 0 repo scaffold and pinned environment, Phase 1 data download and
+**Phases 0–6 are complete:** Phase 0 repo scaffold and pinned environment, Phase 1 data download and
 first look, Phase 2 feature alignment, Phase 3 preprocessing, Phase 4 in-distribution baselines,
-Phase 5 both from-scratch models. Phases 6, 7 and 9 are the remaining core (Phase 8 is the optional
-stretch) — see [Implementation steps](#implementation-steps) for what each one owes.
+Phase 5 both from-scratch models, Phase 6 the zero-shot cross-era evaluation (RQ1, the primary
+result). Phases 7 and 9 are the remaining core (Phase 8 is the optional stretch) — see
+[Implementation steps](#implementation-steps) for what each one owes.
 
 Where the delivered build departs from the approved proposal, and why, is recorded in
 [`deviations.md`](deviations.md).
@@ -117,10 +120,46 @@ check on the MLP's backprop, worst relative error 2.0e-8.
 > project constraint, and the failure it guards against is silent, so forgetting the argument must
 > not be able to produce it.
 
-`./run.sh` reproduces Phases 2 → 4 from the raw CSVs in under 20 seconds. Phase 5 is deliberately not
-wired into it: the scratch models' `reports/metrics.csv` rows belong to Phase 6's regime run under
-its `run_id` convention, so `python -m src.models.scratch_logreg` / `scratch_mlp` print their val
-scores and log nothing. The remaining pipeline modules are still stubs that raise
+`src/evaluate.py`'s `run_regimes()` then carries each of those six models, unchanged, from UNSW-test
+onto TON_IoT — **RQ1, the headline result.** Every model is fit once on the UNSW train fold and
+sealed against refitting for the span of both evaluations, and TON_IoT goes through the frozen Phase
+3 preprocessor transform-only:
+
+| Model | ROC-AUC in-dist. | ROC-AUC cross-era | **Δ AUC** | F1 in-dist. | F1 cross-era | **Δ F1** |
+| --- | --- | --- | --- | --- | --- | --- |
+| Random Forest | 0.9788 | 0.2106 | **+0.7682** | 0.9145 | 0.3050 | +0.6095 |
+| Scratch MLP | 0.9621 | 0.1846 | **+0.7775** | 0.8953 | 0.2821 | +0.6132 |
+| Decision Tree | 0.9648 | 0.3534 | **+0.6115** | 0.9099 | 0.5112 | +0.3987 |
+| Linear SVM | 0.8846 | 0.2114 | **+0.6732** | 0.7883 | 0.2287 | +0.5597 |
+| Scratch logreg | 0.8811 | 0.2489 | **+0.6321** | 0.7832 | 0.3032 | +0.4800 |
+| Dummy (majority-class) | 0.5000 | 0.5000 | +0.0000 | 0.7102 | **0.8656** | **−0.1554** |
+
+_in-distribution = UNSW-test, n=82,332, **44.94% normal**; cross-era = TON_IoT, n=211,043, **23.69%
+normal**._
+
+Two things have to be read together there. Every real model lands **below the 0.5000 no-skill line
+cross-era** — the learned ranking does not merely stop working, it *inverts*, which is a stronger
+claim than "performance degrades" and is the finding Phase 9 has to explain rather than smooth over.
+(Checked, because sub-0.5 AUC is also the exact signature of a flipped label: TON_IoT's harmonized
+`label = 1` covers only `backdoor`/`ddos`/`dos`/`injection`/`mitm` rows and `label = 0` only
+`normal`, so the polarity is right and the inversion is real.) And the Dummy moves the *other* way:
+its F1 **rises 0.7102 → 0.8656** cross-era at ROC-AUC exactly 0.5000, purely because the target era
+is 76.31% attack rather than 55.06%. That +0.1554 is the size of the prevalence artifact, and it is
+why the drift claim leads with ROC-AUC and never with F1 alone.
+
+The `proto` ablation runs as a second condition under its own `run_id` (`phase6-crossera-no_proto`):
+a matched in-distribution/cross-era pair, **retrained on the train fold with the protocol one-hots
+removed** (d=18) rather than masked at test time, so the comparable quantity is the difference of the
+deltas. The with-proto drop almost entirely survives — Δ AUC moves by between −0.087 and +0.061
+across the six models, i.e. the `other`-bucket artifact accounts for at most ~8% of a ~0.7 collapse
+and for three models the ablated model drops *further*. RQ1's degradation is not the protocol
+collapse.
+
+`./run.sh` reproduces Phases 2 → 4 and 6 from the raw CSVs in about two minutes, and re-running
+leaves `reports/metrics.csv` byte-identical. Phase 5 is deliberately not wired into it: the scratch
+models' `reports/metrics.csv` rows belong to Phase 6's regime run under its `run_id` convention (and
+Phase 6 fits the same locked models anyway), so `python -m src.models.scratch_logreg` / `scratch_mlp`
+print their val scores and log nothing. The remaining pipeline modules are still stubs that raise
 `NotImplementedError`, each tagged with the phase that fills it in
 (see [Implementation steps](#implementation-steps)), and `run.sh` walks past them printing banners.
 

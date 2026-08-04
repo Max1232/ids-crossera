@@ -2,7 +2,7 @@
 
 _Consolidated record of where the delivered project departs from the scope promised in
 `Proposal-Final.md`, plus the substantive methodological decisions a reader could reasonably
-question. Last updated: 2026-08-03 (content through Phase 4; §3.5 ratified)._
+question. Last updated: 2026-08-03 (content through Phase 6; §3.5 ratified, §3.9–3.10 added)._
 
 ## What this file is — and is not
 
@@ -200,9 +200,48 @@ exactly 0.5000** and macro-F1 0.3551 — a high-looking F1 from a model with zer
 This is the cleanest single argument in the project for why the headline is neither accuracy nor raw
 F1. It also *inverts*: TON_IoT is 76.31% attack, so the same trivial model scores **higher** there.
 Phase 6 must therefore log the Dummy in **both** regimes, or a reader cannot separate the prevalence
-artifact from drift. **Report home:** Results (beside the headline Δ) + Data & Experiments.
+artifact from drift. **Discharged in Phase 6, and the number is now measured:** the Dummy's F1
+**rises 0.7102 → 0.8656** cross-era (Δ = **−0.1554**) at ROC-AUC exactly 0.5000 in both regimes —
+that is the size of the prevalence artifact every real model's F1 delta has to be read against.
+**Report home:** Results (beside the headline Δ) + Data & Experiments.
 
-### 3.9 Gradient boosting excluded
+### 3.9 The `proto` ablation is a retrain-without, not a test-time mask (Phase 6)
+The `proto` hazard is measured, not hypothetical: 18.31% of UNSW train rows use a protocol TON_IoT
+never contains, those rows are **91% attack**, and both sides collapse to
+`{tcp, udp, icmp, other}` — so a model can learn "`other` → attack" from a bucket that is 91% attack
+in training and **0% of rows at test time**, and part of the RQ1 drop could be that signal going
+inert rather than attacker evolution.
+
+**The obvious implementation of the ablation is the wrong experiment.** Zeroing the `protocol`
+one-hot columns at test time on a model *trained* with them evaluates that model on inputs neither
+era produces — an all-zero one-hot block is off the training manifold for reasons unrelated to
+drift — so the resulting drop confounds "the proto signal went inert" with "the model was
+perturbed". **Delivered instead:** the feature is removed from the hypothesis class. The models are
+**retrained on the UNSW train fold** with the four protocol one-hots excluded (d=18 rather than
+d=22) and run through *both* regimes, giving the ablation its own matched
+in-distribution/cross-era pair under `run_id = phase6-crossera-no_proto`. A Δ needs both halves, so
+the reported quantity is the **difference of the deltas**. The retrain is train-fold-only and
+therefore not leakage; nothing is refit on UNSW-test or TON_IoT, and the Phase 3 `Preprocessor` is
+not refit at all (dropping the one-hot columns post-transform is exactly equivalent to refitting it
+without `protocol`, since per-column encodings are independent).
+**Result:** the objection does not survive. Δ ROC-AUC moves by between **−0.087 and +0.061** across
+the six models, and for three of them the ablated model degrades *further* — the `other`-bucket
+artifact accounts for at most ~8% of a ~0.7 collapse.
+**Report home:** Methods (ablation design — state why a test-time mask was rejected) + Results.
+
+### 3.10 Cross-era ROC-AUC lands *below* 0.5 — the ranking inverts (Phase 6)
+Not a deviation but a finding that needs stating before someone reads it as a bug. Every real model
+scores **ROC-AUC 0.13–0.35 on TON_IoT** against 0.88–0.98 in-distribution, i.e. below the Dummy's
+exact 0.5000: the 2015-learned score ranking does not merely stop working on 2019–20 traffic, it
+inverts. Sub-0.5 AUC is also the exact signature of a flipped label, so that was checked directly —
+TON_IoT's harmonized `label = 1` covers only the `backdoor`/`ddos`/`dos`/`injection`/`mitm` rows and
+`label = 0` only `normal` — and the polarity is correct. The mechanism to investigate in Phase 9 is
+the set of features whose *meaning* inverts across eras (`zero_duration`: 1.52% of UNSW rows, 99% of
+them normal, against 28.44% of TON_IoT rows, only 21% normal), not a wiring fault.
+**Report home:** Results — the claim is "the detector inverts", which is stronger than "it degrades"
+and must be argued rather than buried.
+
+### 3.11 Gradient boosting excluded
 `xgboost` was removed (640 MB of CUDA libs, zero references in `src/`, and boosting appears nowhere
 in the approved proposal). If a boosting baseline is ever wanted, use sklearn's
 `HistGradientBoostingClassifier`. **Report home:** none unless added.
