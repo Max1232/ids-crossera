@@ -70,11 +70,12 @@ that level is effectively untrained yet active cross-era.
 
 ## Status
 
-**Phases 0–6 are complete:** Phase 0 repo scaffold and pinned environment, Phase 1 data download and
+**Phases 0–7 are complete:** Phase 0 repo scaffold and pinned environment, Phase 1 data download and
 first look, Phase 2 feature alignment, Phase 3 preprocessing, Phase 4 in-distribution baselines,
 Phase 5 both from-scratch models, Phase 6 the zero-shot cross-era evaluation (RQ1, the primary
-result). Phases 7 and 9 are the remaining core (Phase 8 is the optional stretch) — see
-[Implementation steps](#implementation-steps) for what each one owes.
+result), Phase 7 the transfer-learning recovery curve (RQ2, the secondary result). Phase 9 is the
+remaining core — figures, report, demo (Phase 8 is the optional stretch) — see
+[Implementation steps](#implementation-steps) for what it owes.
 
 Where the delivered build departs from the approved proposal, and why, is recorded in
 [`deviations.md`](deviations.md).
@@ -155,13 +156,62 @@ across the six models, i.e. the `other`-bucket artifact accounts for at most ~8%
 and for three models the ablated model drops *further*. RQ1's degradation is not the protocol
 collapse.
 
-`./run.sh` reproduces Phases 2 → 4 and 6 from the raw CSVs in about two minutes, and re-running
+`src/transfer.py` then answers **RQ2: how little modern labelled data undoes that.** TON_IoT is
+split **once**, stratified on the binary label and seeded from `RANDOM_SEED`, into a **permanent
+105,521-row test half** and a 105,522-row fine-tune pool; every point below — the re-measured
+zero-shot point included — is scored on that identical half, so the data budget is the only thing
+moving along the x-axis. Budgets are fractions **of the pool** (1% = 1,055 rows, 5% = 5,276,
+10% = 10,552, 25% = 26,380, ceiling = the whole pool), the fine-tune rows are disjoint from the test
+half on **row indices**, and nothing is re-tuned per fraction. Adaptation is per model: the MLP
+retrains its output head with **both hidden layers frozen** (23 of 2,025 parameters), the
+from-scratch logistic regression warm-starts from its UNSW weights, and the classical models are
+refit on the target sample (none has an incremental interface that preserves a fit).
+
+**ROC-AUC on the frozen TON_IoT test half** (n=105,521, **23.69% normal** — the same balance as the
+full target frame):
+
+| Model | 0% (zero-shot) | 1% | 5% | 10% | 25% | ceiling |
+| --- | --- | --- | --- | --- | --- | --- |
+| Random Forest | 0.2121 | **0.9979** | 0.9988 | 0.9988 | 0.9993 | 0.9998 |
+| Decision Tree | 0.3519 | **0.9862** | 0.9920 | 0.9941 | 0.9969 | 0.9984 |
+| Linear SVM | 0.2111 | **0.9843** | 0.9869 | 0.9877 | 0.9880 | 0.9881 |
+| Scratch logreg | 0.2490 | **0.9859** | 0.9878 | 0.9884 | 0.9885 | 0.9884 |
+| Scratch MLP (head only) | 0.1847 | **0.8845** | 0.9598 | 0.9689 | 0.9766 | 0.9808 |
+| Dummy (majority-class) | 0.5000 | 0.5000 | 0.5000 | 0.5000 | 0.5000 | 0.5000 |
+
+F1 over the same budgets: RF 0.3061 → 0.9923 → 0.9977, DT 0.5100 → 0.9882 → 0.9952, SVM 0.2292 →
+0.9500 → 0.9626, logreg 0.3035 → 0.9527 → 0.9637, MLP 0.2825 → 0.7701 → 0.9663, and the Dummy sits
+flat at **0.8656** — which is the number every recovered F1 has to be read against, since an F1
+climbing toward 0.87 on a 76.31%-attack set may have recovered nothing.
+
+**The RQ1 inversion is undone by 1,055 labelled modern flows.** Every model clears the no-skill
+0.5000 line at the smallest budget tested, and the 25% budget closes 99.5–100% of each model's gap
+to its own ceiling, so the curve is flat after 1% rather than climbing. Two caveats travel with
+that, both measured. **The target era is highly redundant, but the recovery generalizes:** only
+46.4% of the frozen test half's rows are distinct feature vectors and 35.8% of them appear
+*verbatim* inside the 1% draw, so the same 1%-budget forest was re-scored on only the 64.22% of the
+half (67,769 rows, attack share 0.7596) whose exact 22-feature vector is **absent** from the draw —
+0.9959 AUC / 0.9882 F1 there against 0.9979 / 0.9923 on all rows, i.e. memorization is worth 0.0021
+AUC against a recovery of 0.786. What the redundancy measures instead is that the label is close to
+a deterministic function of these 22 features: just 15 of 92,438 distinct vectors carry both labels,
+and a per-vector majority-vote lookup over them would score 99.8953% accuracy on the whole target
+frame (221 errors in 211,043). That is why ~1% of the target labels suffices, and why 1% is a lower
+bound on the labelling effort a genuinely overlapping feature space needs. **And the MLP's freeze
+costs something:** at the full budget, head-only reaches 0.9808 AUC against 0.9980 for the same
+architecture retrained end to end on the same pool (logged as `phase7-recovery-ceiling-no_freeze`),
+so 0.0172 AUC is the price of holding the 2015 feature space fixed. The zero-shot point is
+re-measured on the frozen half rather than taken from Phase 6 — those rows were scored on all
+211,043 rows, which *include* this phase's fine-tune pool — and the two agree to within 0.0015 AUC,
+which is what makes the frozen half representative of the era it was cut from. Both decisions are
+`deviations.md` §3.12 / §3.13, the feature-space determinism caveat is §2.3.
+
+`./run.sh` reproduces Phases 2 → 4, 6 and 7 from the raw CSVs in about four minutes, and re-running
 leaves `reports/metrics.csv` byte-identical. Phase 5 is deliberately not wired into it: the scratch
 models' `reports/metrics.csv` rows belong to Phase 6's regime run under its `run_id` convention (and
 Phase 6 fits the same locked models anyway), so `python -m src.models.scratch_logreg` / `scratch_mlp`
-print their val scores and log nothing. The remaining pipeline modules are still stubs that raise
-`NotImplementedError`, each tagged with the phase that fills it in
-(see [Implementation steps](#implementation-steps)), and `run.sh` walks past them printing banners.
+print their val scores and log nothing. `src/plots.py` is the one pipeline module still stubbed out
+with `NotImplementedError` — Phase 9 fills it in (see
+[Implementation steps](#implementation-steps)), and `run.sh` walks past it printing a banner.
 
 Read the Dummy row as the warning it is: UNSW-test is 55.06% *attack*, so a `most_frequent`
 classifier predicts "attack" everywhere and posts F1 = 0.7102 at recall 1.0 with **ROC-AUC exactly
@@ -398,6 +448,15 @@ early layer(s) and retrains the output head; logistic regression and the classic
 on (source + small target) or the small target alone. Plot post-adaptation F1/ROC-AUC vs. fraction
 of modern data used, and report how close each model gets to a full-TON_IoT-trained ceiling and at
 what data budget.
+
+*Delivered* — the open choices above resolved, with the reasoning in `deviations.md` §3.12/§3.13:
+the MLP freezes **both** hidden layers (that is what `fit(freeze_hidden=True)` does, and the freeze
+cost is measured under its own `run_id` rather than assumed); the classical models retrain on the
+**small target alone**, because a pooled fit would be 140,272 source rows against 1,055 target rows
+at the 1% budget and would not converge to the ceiling the curve is read against; the zero-shot
+point is **re-measured on the frozen test half** rather than reused from Phase 6, whose rows were
+scored on the full target frame including this phase's fine-tune pool. Curve in
+[Status](#status); the plot itself is Phase 9's.
 
 **Phase 8 — Stretch: live 2026 malware probe** *(optional — cut first; do NOT start until 1–7 land)*
 Two hard gates before anything is downloaded or run: **authorization** (instructor sign-off plus

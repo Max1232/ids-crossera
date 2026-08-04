@@ -2,8 +2,9 @@
 
 _Consolidated record of where the delivered project departs from the scope promised in
 `Proposal-Final.md`, plus the substantive methodological decisions a reader could reasonably
-question. Last updated: 2026-08-03 (content through Phase 6; §3.5 ratified, §3.9 added, §3.10
-rewritten — the RQ1 result, its mechanism, and the two robustness checks)._
+question. Last updated: 2026-08-04 (content through Phase 7; §2.3, §3.12 and §3.13 added — the
+RQ2 recovery curve, the frozen test set, and the unseen-vector check that shows the curve is
+generalization rather than memorization)._
 
 ## What this file is — and is not
 
@@ -103,6 +104,76 @@ delivered `Train_Test_Network.csv` is **211,043 rows / 50,000 normal** against a
 part of the measurement, not a re-download fix. This is why the drift claim leads with **ROC-AUC**
 (prevalence-insensitive) and reports F1 with the balance caveat attached.
 **Evidence:** `data/README.md`. **Report home:** Data & Experiments + Results.
+
+### 2.3 The recovery generalizes to unseen flows — the limitation is feature-space determinism, not memorization
+The RQ2 result is that **1% of the fine-tune pool (1,055 rows) recovers essentially all of the lost
+ROC-AUC**: `random_forest` goes 0.2121 → 0.997939 on the frozen test half and every model clears
+the dummy's 0.5000 (§3.13). The fine-tune rows are index-disjoint from that half by construction
+(§3.12), but **TON_IoT repeats itself in the 22-column shared subspace**, so the first objection a
+grader should raise is that the recovery might be a lookup table rather than a learned decision
+boundary. **It is not, and that was measured rather than argued.**
+
+**The redundancy is real.** Measured on the delivered frame and re-verified 2026-08-04:
+
+| quantity | value |
+|---|---|
+| distinct feature vectors in the full target frame | **92,438** of 211,043 rows (43.80%) |
+| distinct feature vectors in the frozen test half | **48,985** of 105,521 rows (46.42%) |
+| frozen-test rows whose exact feature vector also appears in the **1%** fine-tune draw | **35.78%** |
+| ... in the 5% / 10% / 25% / full-pool draw | 46.44% / 49.28% / 52.57% / 57.03% |
+| distinct vectors carrying **both** labels | **15** (7,522 rows, 3.56%) |
+
+**But it does not explain the recovery.** Score the *same* fitted model on only the frozen-test rows
+whose exact 22-feature vector is **absent** from the fine-tune draw — the rows it provably cannot
+have memorized — and the curve barely moves:
+
+| model | budget | AUC, all rows | AUC, unseen only | F1, all rows | F1, unseen only | unseen rows | unseen share |
+|---|---|---|---|---|---|---|---|
+| `random_forest` | 1% (n_ft=1,055) | 0.997939 | **0.995852** | 0.992254 | **0.988248** | 67,769 | 64.22% |
+| `random_forest` | 10% (n_ft=10,552) | 0.998816 | 0.998177 | 0.996027 | 0.993545 | 53,524 | 50.72% |
+| `random_forest` | ceiling (n_ft=105,522) | 0.999759 | 0.999479 | 0.997746 | 0.996369 | 45,345 | 42.97% |
+| `decision_tree` | 1% (n_ft=1,055) | 0.986216 | **0.976380** | 0.988179 | **0.981802** | 67,769 | 64.22% |
+| `decision_tree` | 10% (n_ft=10,552) | 0.994068 | 0.988591 | 0.990607 | 0.985698 | 53,524 | 50.72% |
+| `decision_tree` | ceiling (n_ft=105,522) | 0.998387 | 0.996403 | 0.995226 | 0.990850 | 45,345 | 42.97% |
+
+At the 1% budget the unseen subset is **64.22% of the frozen half (67,769 rows) at attack share
+0.7596** — within 0.004 of the half's own 0.76308, so it is not a rarer or an easier
+subpopulation. Memorization is therefore worth **0.0021 AUC** to the random forest and **0.0098** to
+the single tree, against recoveries of **0.786** and **0.634**. **The conclusion is generalization,
+not memorization: on rows whose feature vector it has never seen, 1,055 labelled modern flows still
+buy ROC-AUC 0.9959 / F1 0.9882, so the recovered model is not a lookup table.**
+
+**Provenance — what was measured on which split.** The all-rows columns are the committed rows
+`phase7-recovery-{f0.01,f0.10,ceiling},{random_forest,decision_tree},target_frozen_test` in
+`reports/metrics.csv`. The unseen-only columns **are not in `reports/metrics.csv` and cannot be** —
+the log has no per-row-subset breakdown — so they are a re-derivation: a read-only script loads the
+Phase 3 preprocessor transform-only, reproduces the canonical frozen split by calling
+`transfer.frozen_split_indices()` / `fraction_indices()` rather than re-implementing them, refits
+through `transfer.finetune()`, and partitions the frozen half with `np.unique` over the 22 features
+rounded to 9 decimals. Its all-rows column reproduces the committed rows to **4.9e-07**, which is
+what licenses the unseen-only column standing beside them; the redundancy table above was
+re-verified in the same pass and every figure held.
+
+**The limitation is real, but it is a different one: given these 22 features the label is
+near-deterministic, so few labels suffice.** Only **15 of the 92,438 distinct vectors carry both
+labels** (7,522 rows, 3.56% of the frame), and a per-vector majority vote — a perfect lookup table
+over the shared subspace — would score **99.90% accuracy** on the whole target frame, missing 221
+rows of 211,043. The 22-column subspace nearly *determines* the TON_IoT label, and a model needs
+very few examples to find a function that simple. That is a claim about **task difficulty in this
+feature space** — a handful of IoT device types emitting near-identical flows (§2.1) — not about the
+model cheating, and it leaves the disjointness invariant untouched: these are distinct records,
+which is exactly why disjointness is asserted on **row indices** and never on values (the same ~52%
+duplicate-vector rate is documented for the UNSW train fold in §3.6/§3.7).
+**How to state it:** "1% of modern labels (1,055 rows) recovers the lost ROC-AUC, and it
+generalizes — 0.9959 AUC on the 64% of test rows whose feature vector never appears in the
+fine-tune draw. But the label is close to a deterministic function of these 22 features (15 of
+92,438 distinct vectors are label-ambiguous; a lookup table would score 99.90%), so 1% is a **lower
+bound** on the labelling effort a feature space with genuine class overlap would need." Report the
+lower-bound clause with the recovery figure; do not report the recovery as memorization.
+**Evidence:** `reports/metrics.csv` for the all-rows column; `transfer.duplicate_overlap()`, printed
+by `python -m src.transfer` on every run, for the redundancy table; the unseen-vector re-derivation
+above for the rest.
+**Report home:** Results (attach to the RQ2 curve) + Data & Experiments (the determinism caveat).
 
 ---
 
@@ -300,6 +371,88 @@ sentence in Data & Experiments alongside §2.1.
 `xgboost` was removed (640 MB of CUDA libs, zero references in `src/`, and boosting appears nowhere
 in the approved proposal). If a boosting baseline is ever wanted, use sklearn's
 `HistGradientBoostingClassifier`. **Report home:** none unless added.
+
+### 3.12 The recovery curve's fraction-0 point is re-measured, not taken from Phase 6 (Phase 7)
+**The obvious thing to do here is wrong.** Phase 6's `phase6-crossera` `cross_era` rows are the
+same unadapted models measured on the same target era, so they look like the natural left endpoint
+of the recovery curve. They are not: they were scored on **all 211,043 TON_IoT rows**, which
+*includes* the 105,522-row fine-tune pool every later point draws from. Plotting them as fraction 0
+would make the curve's first segment a mixture of two changes — "gained fine-tune data" and
+"changed test set" — and the segment from 0 to 1% is precisely where the RQ2 claim lives.
+
+**Delivered:** TON_IoT is split **once**, stratified on the binary label and seeded from
+`config.RANDOM_SEED = 42`, into a **permanent 105,521-row test half** and a 105,522-row fine-tune
+pool. Every point on the curve is scored on that identical half, including a **re-measured
+zero-shot point** under its own `run_id` (`phase7-recovery-f0.00`) using the same
+UNSW-train-fitted models, unadapted. Budgets are fractions **of the pool**, not of the full target:
+1% = 1,055 rows, 5% = 5,276, 10% = 10,552, 25% = 26,380, ceiling = 105,522. Draws are nested
+(each budget is a superset of the smaller ones), so a non-monotone point cannot be a different
+*sample* rather than a different *budget*.
+
+**The re-measurement changes almost nothing, which is itself the useful result** — the frozen half
+is representative of the era it was cut from, so nothing downstream rests on which half was drawn:
+
+| model | ROC-AUC, frozen half | ROC-AUC, full 211,043 | Δ |
+|---|---|---|---|
+| `decision_tree` | 0.3519 | 0.3534 | -0.0015 |
+| `random_forest` | 0.2121 | 0.2106 | +0.0015 |
+| `svm` | 0.2111 | 0.2114 | -0.0003 |
+| `scratch_logreg` | 0.2490 | 0.2489 | +0.0001 |
+| `scratch_mlp` | 0.1847 | 0.1846 | +0.0000 |
+| `dummy` | 0.5000 | 0.5000 | 0.0000 |
+
+Largest F1 difference is 0.0013 on the same rows. Phase 6's rows stay Phase 6's and are **not**
+re-logged under a Phase 7 `run_id`; the contrast above is printed on every run.
+Leakage is guarded structurally, but the seal has to sit differently than in Phase 6: Phase 7
+legitimately fits models on target labels, so `evaluate.sealed()` wraps **only** each model's
+evaluation span, while the `Preprocessor` stays sealed for the whole run (it must never refit at
+all). An instrumented run recorded **37 fits — 6 at n=140,272 (the source fits), 30 across the five
+budgets, 1 for the freeze control at n=105,522 — zero at n=105,521 and zero `Preprocessor` fits.**
+**Report home:** Methods (why the zero-shot point is measured twice) + Results (the curve's left
+endpoint).
+
+### 3.13 Adaptation is per-model and target-only, and each ceiling is its own mechanism (Phase 7)
+Three decisions a grader could question, all made so that the **data budget is the only variable**
+along the x-axis. Nothing is re-tuned per fraction: every model is re-instantiated from its locked
+`TUNED_PARAMS`, and class weights stay on at every point (the pool is 76.31% attack).
+
+**1. The MLP freezes *both* hidden layers, not just the first.** `ScratchMLP.fit(freeze_hidden=True)`
+as committed in Phase 5 marks only `head_keys()` trainable, so the whole `(22, 44, 22)` stack keeps
+its UNSW weights as a fixed feature extractor and **23 of the net's 2,025 parameters (1.1%)** move;
+the head is *continued* from its fitted values rather than re-initialized. There is no
+freeze-the-first-layer-only mode and the interface was **not** widened to add one — the head-only
+variant is the strongest form of the data-efficiency claim (the modern budget buys a new decision
+boundary in a 2015 feature space and nothing else). **What the freeze costs is measured, not
+assumed:** at the full budget, head-only reaches ROC-AUC 0.9808 / F1 0.9663 against **0.9980 /
+0.9861** for the same architecture retrained end to end on the same pool
+(`phase7-recovery-ceiling-no_freeze`, one extra row, its own `run_id`) — so freezing costs
+**0.0172 AUC / 0.0198 F1**, and the MLP is the only model whose ceiling is set by its mechanism
+rather than by the data.
+
+**2. `scratch_logreg` warm-starts; the classical models retrain on the target sample alone.**
+Warm-starting is what `ScratchLogReg.fit(warm_start=True)` exists for. `DecisionTreeClassifier`,
+`LinearSVC` and `DummyClassifier` expose no incremental interface at all, and
+`RandomForestClassifier.warm_start` grows more trees on the *same* data rather than carrying a fit
+onto new data, so "retrain on the small sample" (the stub's wording) is the mechanism available.
+**Pooling (source + small target) was considered and rejected on two grounds:** it is not a
+data-budget curve — at the 1% budget the fit would be 140,272 source rows against 1,055 target rows,
+so the source era would dominate every point a reader cares about — and it does not converge to the
+ceiling, so "how close does 25% get?" would compare against an asymptote the curve never approaches.
+
+**3. Each model's ceiling is its own adaptation mechanism at the full budget** (fraction 1.0 of the
+pool), which is what makes the curve continuous into its own upper bound. For the four classical
+models that *is* a full target retrain; for `scratch_logreg` it is equivalent to one, because the
+objective is convex and strictly so at `l2 = 1e-4`, so a warm start and a cold start reach the same
+optimum; only the MLP's ceiling is mechanism-limited, which is what the control in (1) quantifies.
+**Result (ROC-AUC on the frozen half, zero-shot -> 1% -> ceiling):** `random_forest` 0.2121 ->
+0.9979 -> 0.9998, `decision_tree` 0.3519 -> 0.9862 -> 0.9984, `svm` 0.2111 -> 0.9843 -> 0.9881,
+`scratch_logreg` 0.2490 -> 0.9859 -> 0.9884, `scratch_mlp` 0.1847 -> 0.8845 -> 0.9808. **Every
+model clears the dummy's 0.5000 at the smallest budget tested**, i.e. 1,055 labelled modern flows
+undo the RQ1 rank inversion, and the 25% budget closes 99.5-100% of the gap to each ceiling. Read
+it against **§2.3** (the recovery generalizes; why 1% suffices is feature-space determinism, not
+memorization) and against the dummy floor, which is F1 0.8656 at ROC-AUC
+0.5000 on this half — an F1 recovering toward 0.87 would mean nothing at all.
+**Report home:** Methods (adaptation design, one paragraph per mechanism) + Results (the curve).
 
 ---
 

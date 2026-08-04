@@ -6,9 +6,10 @@
 #   preprocess -> baselines -> from-scratch models -> cross-era eval -> transfer -> plots
 #
 # Raw datasets must already be downloaded into data/raw/ (see data/README.md).
-# Phases 2-4 and 6 are implemented and run for real; the remaining steps are still
+# Phases 2-4, 6 and 7 are implemented and run for real; the remaining steps are still
 # placeholders wired to their eventual entry point and print a banner without doing
-# anything. Phase 6 dominates the runtime (~2 min) because it re-fits every model.
+# anything. Phases 6 and 7 dominate the runtime (~2 min each) because both re-fit every
+# model from its factory rather than caching one.
 # Re-running is safe and idempotent: reports/metrics.csv is upserted on
 # (run_id, model, regime), so a second run leaves it byte-identical.
 #
@@ -95,7 +96,15 @@ main() {
     "${PYTHON}" -m src.evaluate --regimes
 
     echo "==> [Phase 7] Transfer-learning recovery curve (RQ2)"
-    # TODO Phase 7: "${PYTHON}" -m src.transfer
+    # The secondary result. Splits TON_IoT once into a permanent test half and a fine-tune pool,
+    # then adapts every Phase 4-5 model on stratified 1/5/10/25% fractions of the pool -- MLP
+    # head-only with both hidden layers frozen, scratch logreg warm-started, the classical models
+    # refit on the target sample. Every point, including the re-measured zero-shot point and the
+    # full-budget ceiling, is scored on the SAME frozen test half; one run_id per budget, so the
+    # fractions cannot overwrite each other. ~2 minutes, dominated by the six source fits on the
+    # UNSW train fold (the scratch logreg alone is ~32 s) which are re-done here rather than
+    # cached, for the same from-raw-data reason as Phase 6. The Preprocessor is never refit.
+    "${PYTHON}" -m src.transfer
 
     echo "==> [Phase 9] Figures -> reports/figures/"
     # TODO Phase 9: "${PYTHON}" -m src.plots
