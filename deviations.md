@@ -2,7 +2,8 @@
 
 _Consolidated record of where the delivered project departs from the scope promised in
 `Proposal-Final.md`, plus the substantive methodological decisions a reader could reasonably
-question. Last updated: 2026-08-03 (content through Phase 6; §3.5 ratified, §3.9–3.10 added)._
+question. Last updated: 2026-08-03 (content through Phase 6; §3.5 ratified, §3.9 added, §3.10
+rewritten — the RQ1 result, its mechanism, and the two robustness checks)._
 
 ## What this file is — and is not
 
@@ -230,16 +231,70 @@ artifact accounts for at most ~8% of a ~0.7 collapse.
 **Report home:** Methods (ablation design — state why a test-time mask was rejected) + Results.
 
 ### 3.10 Cross-era ROC-AUC lands *below* 0.5 — the ranking inverts (Phase 6)
-Not a deviation but a finding that needs stating before someone reads it as a bug. Every real model
-scores **ROC-AUC 0.13–0.35 on TON_IoT** against 0.88–0.98 in-distribution, i.e. below the Dummy's
-exact 0.5000: the 2015-learned score ranking does not merely stop working on 2019–20 traffic, it
-inverts. Sub-0.5 AUC is also the exact signature of a flipped label, so that was checked directly —
-TON_IoT's harmonized `label = 1` covers only the `backdoor`/`ddos`/`dos`/`injection`/`mitm` rows and
-`label = 0` only `normal` — and the polarity is correct. The mechanism to investigate in Phase 9 is
-the set of features whose *meaning* inverts across eras (`zero_duration`: 1.52% of UNSW rows, 99% of
-them normal, against 28.44% of TON_IoT rows, only 21% normal), not a wiring fault.
-**Report home:** Results — the claim is "the detector inverts", which is stronger than "it degrades"
-and must be argued rather than buried.
+Not a deviation but a finding that needs stating before someone reads it as a bug. **Every real
+model inverts.** In-distribution ROC-AUC spans **0.8811–0.9788**; cross-era it spans
+**0.1846–0.3534** — below the Dummy's exact 0.5000. The 2015-learned score ranking does not merely
+stop working on 2019–20 traffic, it runs backwards, so the detector is *anti-correlated* with ground
+truth on TON_IoT. This is a **rank inversion, not a decay**, and the report has to say so.
+
+| model | in-distribution | cross-era | Δ ROC-AUC |
+|---|---|---|---|
+| `random_forest` | 0.9788 | 0.2106 | −0.7682 |
+| `scratch_mlp` | 0.9621 | 0.1846 | −0.7775 |
+| `decision_tree` | 0.9648 | 0.3534 | −0.6115 |
+| `svm` | 0.8846 | 0.2114 | −0.6732 |
+| `scratch_logreg` | 0.8811 | 0.2489 | −0.6321 |
+| `dummy` | 0.5000 | 0.5000 | 0.0000 |
+
+**Evidence:** `reports/metrics.csv`, rows `phase4-baselines,*,in_distribution` and
+`phase6-crossera,*,cross_era`; the two scratch models' in-distribution halves are logged under
+`phase6-crossera` because they have no Phase 4 entry. Sub-0.5 AUC is also the exact signature of a
+flipped label, so polarity was verified directly against both parquets before the inversion was
+accepted: `label = 0` ⟺ normal and `label = 1` ⟺ attack in both, with TON_IoT's `label = 1` covering
+only the `backdoor`/`ddos`/`dos`/`injection`/`mitm` rows. It is not a wiring fault.
+
+**Mechanism: response-side feature inversion between eras.** An earlier draft of this entry blamed
+`zero_duration`; **that attribution is withdrawn.** The flag fires on 2.5% of UNSW *normal* rows
+against 0.08% of UNSW *attack* rows, but 25.4% vs 29.4% on TON_IoT normal vs attack — near-flat
+across TON_IoT's classes — and its standalone ROC-AUC is 0.488 in-distribution and 0.520 cross-era.
+A feature that close to random cannot drive a ~0.77 AUC swing. What does drive it is the **response
+side of the flow flipping sign between the two datasets**, at the class median:
+
+| feature | UNSW normal | UNSW attack | TON_IoT normal | TON_IoT attack |
+|---|---|---|---|---|
+| `dst_bytes` | 354 | 0 | 0 | 40 |
+| `dst_pkts` | 8 | 0 | 0 | 1 |
+
+UNSW attacks are largely unanswered probes and scans against enterprise servers, so *absence of a
+reply* marks an attack. TON_IoT normal traffic is silent IoT telemetry, so *absence of a reply*
+marks normal. A UNSW-trained model has learned "silence is hostile"; on IoT traffic that rule is not
+merely uninformative but **actively backwards**, which is why cross-era AUC lands *below* 0.5 rather
+than degrading toward it. This is the enterprise-vs-IoT domain shift of **§2.1**, now made
+quantitative at the feature level — not a second, separate confound.
+
+**Consequence, and it is a limitation the report must state rather than bury:** the headline Δ is an
+**upper bound on temporal drift bundled with domain shift, not a measurement of pure temporal
+drift.** The two eras differ in deployment environment as well as in time, and this design cannot
+separate them. It attaches to the reported number in Results, not to a footnote.
+
+**Robustness — the two obvious deflations of the result are both measured, and neither holds.**
+- *"It's just the `proto` shortcut going inert."* It is not. The ablation is a **retrain-without at
+  d=18, not a test-time mask** (design and the full argument: **§3.9** — masking the protocol
+  one-hots on a model trained with them evaluates it on inputs no era produces, confounding "the
+  learned shortcut went inert" with "the model was perturbed off its training manifold"). Matched
+  pairs are refit on the UNSW train fold and run through **both** regimes, so the reported quantity
+  is a **difference of deltas**: it spans **−0.087 to +0.061** against a ~0.7 collapse, and three of
+  the six models degrade *further* without the protocol features.
+- *"It's a prevalence artifact."* Not on ROC-AUC. The stratified/prior Dummy holds ROC-AUC exactly
+  **0.5000 in both regimes** while its cross-era F1 *rises* to **0.8656** (from 0.7102) purely on
+  prevalence — UNSW-test is 55.06% attack against TON_IoT's 76.31%. Any F1 delta has to be read
+  against that artifact, which is precisely why the drift claim leads with ROC-AUC (**§2.2**,
+  **§3.8**) and why every logged row carries `n_test` and `positive_rate` for the set it was
+  measured on.
+
+**Report home:** Results — the claim is "the detector inverts, and here is the feature-level reason",
+which is stronger than "it degrades" and must be argued rather than buried — plus the upper-bound
+sentence in Data & Experiments alongside §2.1.
 
 ### 3.11 Gradient boosting excluded
 `xgboost` was removed (640 MB of CUDA libs, zero references in `src/`, and boosting appears nowhere
