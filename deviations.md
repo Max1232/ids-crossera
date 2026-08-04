@@ -55,7 +55,8 @@ also carry an Argus `(spkts−1)/spkts` correction, so they cannot be cross-chec
 `sbytes*8/dur`.
 **Evidence:** `sbytes*8*(spkts−1)/(spkts*dur)` matches `sload` within 1% on 99.98% of `dur>0` rows.
 `duration == 0` is guarded and carried as a named `zero_duration` flag (see 2.3-adjacent note in
-the plan) because the zero case inverts across eras.
+the plan) because the zero case's **prevalence** inverts across eras (**1.52%** of UNSW rows vs
+**28.44%** of TON_IoT's — a *rate* inversion, not §3.10's signal inversion).
 **Report home:** Methods (feature derivation).
 
 ### 1.3 Per-attack-family analysis — restricted to three shared families
