@@ -335,10 +335,10 @@ own. Phase 8 is cut first if anything has to go.
 
 ## Implementation steps
 
-Condensed from the implementation plan. The canonical copy is
-`University/CS4100/Project/Implementation-Plan.md` in Max's vault; the
-[HackMD page](https://hackmd.io/@maxCoss/ImplementationPlan) is a hand-pasted mirror of it for
-sharing, so the vault file wins if the two disagree.
+Condensed from the implementation plan, whose canonical copy is
+`University/CS4100/Project/Implementation-Plan.md` in Max's vault. This section and
+`deviations.md` are the authoritative in-repo record; where they disagree with the vault plan, the
+vault file wins.
 
 **Phase 0 — Repo & environment** *(complete)*
 GitHub repo and collaborator access; Python venv with pinned `requirements.txt`; global
