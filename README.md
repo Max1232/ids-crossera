@@ -142,19 +142,30 @@ Two things have to be read together there. Every real model lands **below the 0.
 cross-era** — the learned ranking does not merely stop working, it *inverts*, which is a stronger
 claim than "performance degrades" and is the finding Phase 9 has to explain rather than smooth over.
 (Checked, because sub-0.5 AUC is also the exact signature of a flipped label: TON_IoT's harmonized
-`label = 1` covers only `backdoor`/`ddos`/`dos`/`injection`/`mitm` rows and `label = 0` only
+`label = 1` covers all nine attack `type` levels — `backdoor`, `ddos`, `dos`, `injection`,
+`password`, `ransomware`, `scanning`, `xss` and `mitm`, 161,043 rows — and `label = 0` only
 `normal`, so the polarity is right and the inversion is real.) And the Dummy moves the *other* way:
 its F1 **rises 0.7102 → 0.8656** cross-era at ROC-AUC exactly 0.5000, purely because the target era
-is 76.31% attack rather than 55.06%. That +0.1554 is the size of the prevalence artifact, and it is
-why the drift claim leads with ROC-AUC and never with F1 alone.
+is 76.31% attack rather than 55.06%. That 0.1554 F1 gain is the size of the prevalence artifact, and
+it is why the drift claim leads with ROC-AUC and never with F1 alone.
 
-The `proto` ablation runs as a second condition under its own `run_id` (`phase6-crossera-no_proto`):
-a matched in-distribution/cross-era pair, **retrained on the train fold with the protocol one-hots
-removed** (d=18) rather than masked at test time, so the comparable quantity is the difference of the
-deltas. The with-proto drop almost entirely survives — Δ AUC moves by between −0.087 and +0.061
-across the six models, i.e. the `other`-bucket artifact accounts for at most ~8% of a ~0.7 collapse
-and for three models the ablated model drops *further*. RQ1's degradation is not the protocol
-collapse.
+**Two ablations run as second and third conditions**, each under its own `run_id` and each a matched
+in-distribution/cross-era pair **retrained on the train fold with one feature's one-hots removed**
+(d=18) rather than masked at test time — so the comparable quantity is the difference of the deltas.
+Both land at the same width and are *different experiments*: only the `run_id` and the `notes` column
+tell them apart, never `d`.
+
+- **`phase6-crossera-no_proto`** — the `proto` ablation. The with-protocol drop almost entirely
+  survives: Δ-of-Δ AUC spans −0.087 to +0.061 across the six models, so the `other`-bucket artifact
+  accounts for at most ~12% of a ~0.7 collapse, and for three models the ablated model drops
+  *further*.
+- **`phase6-crossera-no_conn_state`** — the `conn_state` ablation. This one matters because the
+  Argus↔Zeek state collapse is *ours* rather than the datasets': the two vocabularies share zero
+  tokens, and the collapse is badly asymmetric across eras (`reset` 0.0421% of UNSW train rows vs
+  23.6757% of TON_IoT's; the `other` bucket 0.0057% vs 11.0556%). Same verdict: Δ-of-Δ AUC spans
+  −0.0427 to +0.0535, at most ~7.6% of the collapse, and three of six degrade *further* without it.
+
+RQ1's degradation is neither the protocol collapse nor our connection-state collapse.
 
 `src/transfer.py` then answers **RQ2: how little modern labelled data undoes that.** TON_IoT is
 split **once**, stratified on the binary label and seeded from `RANDOM_SEED`, into a **permanent
@@ -259,14 +270,15 @@ was measured* without changing those two must encode itself into `run_id` — ot
 the row it should be sitting next to:
 
 ```
-phase4-baselines             # in-distribution ceiling
-phase6-crossera              # zero-shot cross-era, full feature set
-phase6-crossera-no_proto     # same model + regime, `proto` ablated
-phase7-recovery-f0.05        # same model + regime, 5% fine-tune budget
-phase7-recovery-f0.25        # ... and 25%
+phase4-baselines                # in-distribution ceiling
+phase6-crossera                 # zero-shot cross-era, full feature set
+phase6-crossera-no_proto        # same model + regime, `proto` ablated (d=18)
+phase6-crossera-no_conn_state   # same model + regime, `conn_state` ablated (also d=18)
+phase7-recovery-f0.05           # same model + regime, 5% fine-tune budget
+phase7-recovery-f0.25           # ... and 25%
 ```
 
-Without those suffixes each `proto` ablation would land on top of its unablated row and the whole
+Without those suffixes each ablation would land on top of its unablated row and the whole
 recovery curve would collapse to whichever fraction ran last. `run_id` is deliberately a fixed label
 and never a timestamp — a timestamp would make every re-run a spurious diff.
 

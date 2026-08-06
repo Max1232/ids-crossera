@@ -8,8 +8,8 @@
 # Raw datasets must already be downloaded into data/raw/ (see data/README.md).
 # Phases 2-4, 6 and 7 are implemented and run for real; the remaining steps are still
 # placeholders wired to their eventual entry point and print a banner without doing
-# anything. Phases 6 and 7 dominate the runtime (~2 min each) because both re-fit every
-# model from its factory rather than caching one.
+# anything. Phases 6 and 7 dominate the runtime (~3 min and ~2 min) because both re-fit
+# every model from its factory rather than caching one -- Phase 6 runs three conditions.
 # Re-running is safe and idempotent: reports/metrics.csv is upserted on
 # (run_id, model, regime), so a second run leaves it byte-identical.
 #
@@ -89,10 +89,13 @@ main() {
     echo "==> [Phase 6] Zero-shot cross-era evaluation (RQ1)"
     # The primary result. Fits every Phase 4-5 model on the UNSW train fold and scores it in both
     # regimes -- in-distribution on UNSW-test, then the SAME fitted model zero-shot on TON_IoT with
-    # no retraining and no refit of the Preprocessor -- plus the `proto` ablation as a second
-    # condition under its own run_id. ~2 minutes: the from-scratch models are re-fit from their
-    # factories on every run, once per condition, because nothing is persisted. That is deliberate
-    # -- a model cache would make this faster and stop it being a from-raw-data reproduction.
+    # no retraining and no refit of the Preprocessor -- plus the `proto` and `conn_state` ablations
+    # as second and third conditions, each under its own run_id. Both ablations land at d=18 (each
+    # categorical encodes to four one-hots) and are DIFFERENT experiments: only the run_id and the
+    # notes column tell them apart, never the width. ~3 minutes: the from-scratch models are re-fit
+    # from their factories on every run, once per condition, because nothing is persisted. That is
+    # deliberate -- a model cache would make this faster and stop it being a from-raw-data
+    # reproduction.
     "${PYTHON}" -m src.evaluate --regimes
 
     echo "==> [Phase 7] Transfer-learning recovery curve (RQ2)"

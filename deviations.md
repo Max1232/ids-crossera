@@ -2,9 +2,15 @@
 
 _Consolidated record of where the delivered project departs from the scope promised in
 `Proposal-Final.md`, plus the substantive methodological decisions a reader could reasonably
-question. Last updated: 2026-08-04 (content through Phase 7; §2.3, §3.12 and §3.13 added — the
-RQ2 recovery curve, the frozen test set, and the unseen-vector check that shows the curve is
-generalization rather than memorization)._
+question. Last updated: 2026-08-05 (content through Phase 7. §3.2 now reports the delivered
+`conn_state` ablation instead of promising one; five factual corrections landed alongside it — see
+the changelog at the foot of this file — and the Δ sign convention is now stated once and used
+throughout)._
+
+**Δ convention, everywhere in this file:** `Δ = in_distribution − cross_era`, i.e. **what the model
+lost**. Positive = degraded, negative = improved. This is `evaluate.metric_deltas()`, and it is what
+`./run.sh` prints, so this file and a grader's own run cannot disagree on a sign. Δ-of-Δ for an
+ablation is `Δ full − Δ ablated`.
 
 ## What this file is — and is not
 
@@ -62,8 +68,9 @@ the plan) because the zero case's **prevalence** inverts across eras (**1.52%** 
 ### 1.3 Per-attack-family analysis — restricted to three shared families
 **Promised:** per-family comparison. **Delivered:** only `DoS`↔`dos`, `Reconnaissance`↔`scanning`,
 and `Backdoor`↔`backdoor` align across the two label spaces. UNSW-NB15 has **no DDoS class**, so
-the earlier shared-family list was wrong. The three families cover **20.5%** of UNSW attack rows
-and **37.3%** of TON_IoT's; say that limit out loud.
+the earlier shared-family list was wrong. The three families cover **20.5% of UNSW _train-fold_
+attack rows** (24,501 of 119,341 — 19.8% of the full 257,673-row concatenated frame, which is
+train+test per §3.3) and **37.3%** of TON_IoT's (60,000 of 161,043); say that limit out loud.
 **Report home:** Data & Experiments + Results (per-family figure caveat).
 
 ### 1.4 RQ3 live-malware probe — in scope as optional, cut-first
@@ -192,11 +199,47 @@ payload columns are dropped.
 **Verified in output:** TON_IoT `src_bytes` zero-rate is **8.10%** (the IP-bytes signature);
 payload would have been 65.46%. **Report home:** Methods (feature alignment).
 
-### 3.2 Connection state collapsed to a coarse three-way set
+### 3.2 Connection state collapsed to a coarse three-way set (plus an `other` bucket) — and ablated
 UNSW `state` (Argus codes) and TON_IoT `conn_state` (Zeek codes) share **zero tokens**, so no
-lexical alignment is possible; both are hand-collapsed to completed / reset / no-response. `reset`
-is 0.05% of UNSW vs 23.7% of TON_IoT, so the cross-era run is evaluated **with and without** the
-feature. **Report home:** Methods + Results ablation.
+lexical alignment is possible. Both are hand-collapsed to **completed / reset / no-response**, and
+`RARE_BUCKET` then adds **`other`** as a fourth *encoded* level for anything the collapse does not
+claim — so the semantic decision is three-way while the fitted `Preprocessor` emits
+`conn_state × 4`, which the d=22 feature width depends on. Both statements are true; neither
+supersedes the other.
+
+**Why this needed measuring rather than asserting.** Unlike the other shared-feature mappings, this
+feature is *ours*: the bridge between the two vocabularies is a modelling decision we invented, not
+a correspondence the datasets provide. It is also badly asymmetric across the eras — measured on the
+UNSW train fold against TON_IoT:
+
+| encoded level | UNSW train fold | TON_IoT | ratio |
+|---|---|---|---|
+| `reset` | 0.0421% | 23.6757% | ~560× |
+| `other` (`RARE_BUCKET`) | 0.0057% | 11.0556% | ~1,900× |
+
+The `other` mismatch is the *larger* of the two, and earlier drafts of this entry cited only `reset`.
+So part of the RQ1 drop could be our own collapse carrying an **instrumentation** change rather than
+attacker evolution.
+
+**Delivered:** the ablation the proposal committed to, under `run_id = phase6-crossera-no_conn_state`,
+using the identical retrain-without design as the `proto` ablation (**§3.9** — the feature is removed
+from the hypothesis class and the models are retrained on the UNSW train fold at d=18, *not* masked
+at test time). It is a matched in-distribution/cross-era pair for all six models, so the reported
+quantity is again the **difference of the deltas**.
+
+> **The two ablations share a width and are not the same experiment.** `protocol` and `conn_state`
+> each encode to four one-hot levels, so both conditions run at d=18. `d` therefore does not identify
+> a condition — only the `run_id` and the `notes` column do. Do not write "the d=18 ablation".
+
+**Result: the objection does not survive, on the same pattern as `proto`.** Δ-of-Δ ROC-AUC spans
+**−0.0427 to +0.0535** across the six models against a ~0.7 collapse — at most **~7.6%** — and for
+three of them (`decision_tree` −0.0001, `svm` −0.0427, `scratch_logreg` −0.0167) the ablated model
+degrades *further* without the feature. Only `scratch_mlp` (+0.0535) and `random_forest` (+0.0194)
+lose meaningfully less when the state collapse is unavailable. **The hand-invented collapse is not
+what produces the rank inversion**; §3.10's response-side mechanism is.
+
+**Report home:** Methods (the collapse, and why it had to be ablated rather than argued) + Results
+(the ablation, beside §3.9's).
 
 ### 3.3 UNSW parquet is train+test concatenated with a `split` column
 `config` names one UNSW parquet but UNSW ships two CSVs, so Phase 2 concatenated them (257,673 rows
@@ -262,19 +305,24 @@ search. **Report home:** Methods (model selection).
 The textbook move after locking hyperparameters is to refit on train+val. Not done, so that every
 phase trains on the same literal frame: refitting on the union would make Phase 4's training set
 differ from the fold the `Preprocessor` was fit on (§3.3), the val fold is still needed for Phase 5's
-MLP width/depth tuning and Phase 6's `conn_state` ablation, and the marginal 35,069 rows carry less
-information than their count suggests given the ~52% duplicate-vector rate in the 11-column subspace.
+MLP width/depth tuning, and the marginal 35,069 rows carry less information than their count suggests
+given the ~52% duplicate-vector rate in the 11-column subspace. (An earlier draft also cited Phase
+6's ablations as needing the val fold. They do not: both are retrains from the locked `TUNED_PARAMS`
+with no search — §3.9 — so they consume no val fold even in principle.)
 **Report home:** Data & Experiments (state it as a choice, not an oversight).
 
-### 3.8 The Dummy floor's F1 is high, and inverts across eras — report it in both regimes
+### 3.8 The Dummy floor's F1 is high, and *rises* across eras — report it in both regimes
 Not a deviation but a reporting obligation Phase 4 surfaced. UNSW-**test** is 55.06% *attack*, so
 `most_frequent` predicts "attack" everywhere and posts **F1 = 0.7102 at recall 1.0 with ROC-AUC
 exactly 0.5000** and macro-F1 0.3551 — a high-looking F1 from a model with zero discriminative power.
 This is the cleanest single argument in the project for why the headline is neither accuracy nor raw
-F1. It also *inverts*: TON_IoT is 76.31% attack, so the same trivial model scores **higher** there.
+F1. And it *rises* across eras: TON_IoT is 76.31% attack, so the same trivial model scores **higher**
+there. (Reserve "inverts" for §3.10's rank inversion — a different phenomenon. The Dummy's ROC-AUC
+does not move at all; only its F1 rises, and purely on prevalence.)
 Phase 6 must therefore log the Dummy in **both** regimes, or a reader cannot separate the prevalence
 artifact from drift. **Discharged in Phase 6, and the number is now measured:** the Dummy's F1
-**rises 0.7102 → 0.8656** cross-era (Δ = **−0.1554**) at ROC-AUC exactly 0.5000 in both regimes —
+**rises 0.7102 → 0.8656** cross-era (Δ = **−0.1554** on the `in − cross` convention of §3.10 — it
+*gained* F1, so it lost a negative amount) at ROC-AUC exactly 0.5000 in both regimes —
 that is the size of the prevalence artifact every real model's F1 delta has to be read against.
 **Report home:** Results (beside the headline Δ) + Data & Experiments.
 
@@ -297,9 +345,10 @@ the reported quantity is the **difference of the deltas**. The retrain is train-
 therefore not leakage; nothing is refit on UNSW-test or TON_IoT, and the Phase 3 `Preprocessor` is
 not refit at all (dropping the one-hot columns post-transform is exactly equivalent to refitting it
 without `protocol`, since per-column encodings are independent).
-**Result:** the objection does not survive. Δ ROC-AUC moves by between **−0.087 and +0.061** across
-the six models, and for three of them the ablated model degrades *further* — the `other`-bucket
-artifact accounts for at most ~8% of a ~0.7 collapse.
+**Result:** the objection does not survive. The Δ-of-Δ spans **−0.087 to +0.061** across the six
+models, and for three of them the ablated model degrades *further* — so the `other`-bucket artifact
+accounts for at most **~12%** of a ~0.7 collapse (0.0867 / 0.70; an earlier draft said "~8%", which
+read the 0.087 as a percentage).
 **Report home:** Methods (ablation design — state why a test-time mask was rejected) + Results.
 
 ### 3.10 Cross-era ROC-AUC lands *below* 0.5 — the ranking inverts (Phase 6)
@@ -309,13 +358,18 @@ model inverts.** In-distribution ROC-AUC spans **0.8811–0.9788**; cross-era it
 stop working on 2019–20 traffic, it runs backwards, so the detector is *anti-correlated* with ground
 truth on TON_IoT. This is a **rank inversion, not a decay**, and the report has to say so.
 
-| model | in-distribution | cross-era | Δ ROC-AUC |
+**Δ convention, used throughout this file and by the pipeline:** `Δ = in_distribution − cross_era`,
+i.e. **what the model lost** — positive means it degraded, negative means it improved. This is
+`evaluate.metric_deltas()`, and it is what `./run.sh`'s headline table prints, so the report and a
+grader's own run agree on the sign.
+
+| model | in-distribution | cross-era | AUC lost (in − cross) |
 |---|---|---|---|
-| `random_forest` | 0.9788 | 0.2106 | −0.7682 |
-| `scratch_mlp` | 0.9621 | 0.1846 | −0.7775 |
-| `decision_tree` | 0.9648 | 0.3534 | −0.6115 |
-| `svm` | 0.8846 | 0.2114 | −0.6732 |
-| `scratch_logreg` | 0.8811 | 0.2489 | −0.6321 |
+| `random_forest` | 0.9788 | 0.2106 | +0.7682 |
+| `scratch_mlp` | 0.9621 | 0.1846 | +0.7775 |
+| `decision_tree` | 0.9648 | 0.3534 | +0.6115 |
+| `svm` | 0.8846 | 0.2114 | +0.6732 |
+| `scratch_logreg` | 0.8811 | 0.2489 | +0.6321 |
 | `dummy` | 0.5000 | 0.5000 | 0.0000 |
 
 **Evidence:** `reports/metrics.csv`, rows `phase4-baselines,*,in_distribution` and
@@ -323,16 +377,23 @@ truth on TON_IoT. This is a **rank inversion, not a decay**, and the report has 
 `phase6-crossera` because they have no Phase 4 entry. Sub-0.5 AUC is also the exact signature of a
 flipped label, so polarity was verified directly against both parquets before the inversion was
 accepted: `label = 0` ⟺ normal and `label = 1` ⟺ attack in both, with TON_IoT's `label = 1` covering
-only the `backdoor`/`ddos`/`dos`/`injection`/`mitm` rows. It is not a wiring fault.
+**all nine** of its attack `type` levels — `backdoor`, `ddos`, `dos`, `injection`, `password`,
+`ransomware`, `scanning`, `xss` at 20,000 rows each plus `mitm` at 1,043, for 161,043 positives
+against 50,000 normal. (The *three-family* restriction of §1.3 applies only to the per-family
+breakdown; it does not narrow the binary label.) It is not a wiring fault.
 
 **Mechanism: response-side feature inversion between eras.** An earlier draft of this entry blamed
-`zero_duration`; **that attribution is withdrawn.** The flag fires on 2.5% of UNSW *normal* rows
-against 0.08% of UNSW *attack* rows, but 25.4% vs 29.4% on TON_IoT normal vs attack — near-flat
+`zero_duration`; **that attribution is withdrawn.** The flag fires on 2.5% of UNSW-test *normal* rows
+against 0.08% of UNSW-test *attack* rows, but 25.4% vs 29.4% on TON_IoT normal vs attack — near-flat
 across TON_IoT's classes — and its standalone ROC-AUC is 0.488 in-distribution and 0.520 cross-era.
 A feature that close to random cannot drive a ~0.77 AUC swing. What does drive it is the **response
-side of the flow flipping sign between the two datasets**, at the class median:
+side of the flow flipping sign between the two datasets**, at the class median.
 
-| feature | UNSW normal | UNSW attack | TON_IoT normal | TON_IoT attack |
+*Basis: the UNSW columns below are **UNSW-test**, the in-distribution evaluation set — not the train
+fold, whose medians are 1,112 and 10. Every §3.10 figure is on that basis; §1.2/§1.3/§3.2 quote
+train-fold figures instead, so the two groups are not interchangeable.*
+
+| feature | UNSW-test normal | UNSW-test attack | TON_IoT normal | TON_IoT attack |
 |---|---|---|---|---|
 | `dst_bytes` | 354 | 0 | 0 | 40 |
 | `dst_pkts` | 8 | 0 | 0 | 1 |
@@ -349,7 +410,7 @@ quantitative at the feature level — not a second, separate confound.
 drift.** The two eras differ in deployment environment as well as in time, and this design cannot
 separate them. It attaches to the reported number in Results, not to a footnote.
 
-**Robustness — the two obvious deflations of the result are both measured, and neither holds.**
+**Robustness — the three obvious deflations of the result are all measured, and none holds.**
 - *"It's just the `proto` shortcut going inert."* It is not. The ablation is a **retrain-without at
   d=18, not a test-time mask** (design and the full argument: **§3.9** — masking the protocol
   one-hots on a model trained with them evaluates it on inputs no era produces, confounding "the
@@ -357,7 +418,13 @@ separate them. It attaches to the reported number in Results, not to a footnote.
   pairs are refit on the UNSW train fold and run through **both** regimes, so the reported quantity
   is a **difference of deltas**: it spans **−0.087 to +0.061** against a ~0.7 collapse, and three of
   the six models degrade *further* without the protocol features.
-- *"It's a prevalence artifact."* Not on ROC-AUC. The stratified/prior Dummy holds ROC-AUC exactly
+- *"It's the hand-invented `conn_state` collapse, not the traffic."* Also measured, also no. The
+  matched retrain-without at d=18 under `phase6-crossera-no_conn_state` (**§3.2**) gives a Δ-of-Δ
+  spanning **−0.0427 to +0.0535** — at most ~7.6% of the collapse — and **three of the six models
+  degrade *further*** without the state feature. The collapse is ours and is badly asymmetric across
+  eras (`reset` 0.0421% vs 23.6757%, `other` 0.0057% vs 11.0556%), which is exactly why it was
+  ablated rather than defended in prose; it is still not what drives the inversion.
+- *"It's a prevalence artifact."* Not on ROC-AUC. The majority-class (`most_frequent`) Dummy holds ROC-AUC exactly
   **0.5000 in both regimes** while its cross-era F1 *rises* to **0.8656** (from 0.7102) purely on
   prevalence — UNSW-test is 55.06% attack against TON_IoT's 76.31%. Any F1 delta has to be read
   against that artifact, which is precisely why the drift claim leads with ROC-AUC (**§2.2**,
@@ -472,3 +539,29 @@ memorization) and against the dummy floor, which is F1 0.8656 at ROC-AUC
   than here, for the same reason: `evaluate.log_metrics()` is now an upsert keyed on
   `(run_id, model, regime)` so re-running `run.sh` no longer doubles every row of
   `reports/metrics.csv`, and `run.sh --help` no longer spills the first three lines of script body.
+
+---
+
+## 5. Corrections log — 2026-08-05
+
+This file had drifted ahead of `Implementation-Plan.md`, which is the failure the preamble warns
+about. Recorded here so the same claims are not "restored" later from an older draft.
+
+| § | Was | Now | Basis |
+|---|---|---|---|
+| 3.2 | "the cross-era run is evaluated **with and without** the feature" — it was not; only `proto` had been ablated | the ablation is **delivered** under `phase6-crossera-no_conn_state`, with its measured Δ-of-Δ | `reports/metrics.csv` carried no `no_conn_state` run_id; it now carries 12 rows |
+| 3.7 | cited "Phase 6's `conn_state` ablation" as a reason to keep the val fold | clause removed — an ablation retrains from locked `TUNED_PARAMS` with no search, so it consumes no val fold even in principle | §3.9's design |
+| 3.8 / 3.10 | Δ signs disagreed: §3.8 used `in − cross`, §3.10's table used `cross − in`, and the pipeline printed `in − cross` — so the document and a grader's own run disagreed on the headline sign | **one convention, stated in the preamble**: `Δ = in − cross` ("what was lost"). §3.10's table now reads `+0.7682` etc.; §3.8's `−0.1554` was already correct | `evaluate.metric_deltas()`; a stray inline `cross − in` in `_print_headline` was fixed to match |
+| 3.8 | heading said the Dummy's F1 "inverts" across eras | "**rises**" — its F1 rises monotonically and its ROC-AUC does not move. "Inverts" is reserved for §3.10's rank inversion | two different phenomena were sharing one word |
+| 3.9 | "the `other`-bucket artifact accounts for at most **~8%**" | **~12%** (0.0867 / 0.70) | the 0.087 Δ-of-Δ had been read as a percentage |
+| 3.10 | TON `label = 1` covers "only `backdoor`/`ddos`/`dos`/`injection`/`mitm`" (81,043 rows) | **all nine** attack `type` levels, 161,043 rows | measured on `Train_Test_Network.csv`; the three-family limit applies only to the per-family breakdown |
+| 3.10 | "the **stratified/prior** Dummy" | "the majority-class (**`most_frequent`**) Dummy" | `baselines.make_dummy`; §3.8 already said this correctly |
+| 1.3, 3.10 | percentages quoted with no denominator, and on *different* bases between sections | bases now labelled — §1.3 is the UNSW **train fold**, §3.10 is **UNSW-test** | both were arithmetically right and mutually inconsistent in presentation |
+
+**Checked and deliberately NOT changed.** §3.4's "50,872 `src_bytes` rows (24.1%)" was queried as
+contradicting §3.1's 8.10% zero-rate. It does not: the two measure different quantities. The seeded
+**train fold** (140,272 rows — the frame the `Preprocessor` was fit on, and the basis §3.4 names) has
+`src_bytes` minimum **46**, and 50,872 TON_IoT rows (24.105%) fall below it; §3.1's 8.10% is TON's
+*zero*-rate. 33,778 TON rows sit strictly between 0 and 46, which is the whole difference. The full
+`split == "train"` frame has minimum 28 — using that basis is what produces the spurious 17,094 /
+8.10% figure. Both entries stand as written.

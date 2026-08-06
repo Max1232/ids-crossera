@@ -453,8 +453,9 @@ def make_scratch_logreg(**params: Any) -> ScratchLogReg:
 # in-distribution row from here would either invent a fifth run_id or collide with Phase 6's, and
 # an upsert makes a collision silent. So this prints and returns; Phase 6 logs.
 #
-# For the same reason it is not wired into run.sh yet -- the `# TODO Phase 5:` line there stays
-# commented until Phase 5b (the MLP) lands and Phase 6 owns the logging.
+# For the same reason it is deliberately not wired into run.sh: Phase 6 re-fits this same locked
+# model and owns its rows, so invoking this from the pipeline would double the fit cost and log
+# nothing. run.sh's Phase 5 banner records that, and the manual invocation beside it.
 
 
 def load_in_distribution_folds() -> dict[str, tuple[Any, Any]]:

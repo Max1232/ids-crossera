@@ -89,7 +89,7 @@ FEATURE_MAP: dict[str, tuple[str, str]] = {
 # Computed identically on both sides from the FEATURE_MAP ingredients above (§1):
 #   bytes_per_sec = (sbytes + dbytes) / dur   ==  (src_ip_bytes + dst_ip_bytes) / duration
 #   pkts_per_sec  = (spkts  + dpkts)  / dur   ==  (src_pkts     + dst_pkts)     / duration
-# TODO Phase 2: implement the derivation.
+# Derived in `_harmonize()` step 5 below, guarded against duration == 0 (see ZERO_DURATION_FLAG).
 #
 # Do NOT "sanity-check" these against UNSW `rate`/`sload`/`dload` (§4.8). Those carry an Argus
 # (n-1)/n inter-packet-interval correction, and `sload` is in *bits* per second: on the median
@@ -148,9 +148,10 @@ DROP_COLUMNS: tuple[str, ...] = (
 )
 
 # --- Categorical normalization ---------------------------------------------------------
-# TODO Phase 2: lower-case `proto`/`service`; split TON_IoT `service` on ";" and keep the first
-# token; collapse `proto` to {tcp, udp, icmp, other} and `service` to {-, dns, http, ftp, ssl,
-# other}; map `state`/`conn_state` through STATE_COLLAPSE; bucket anything else to RARE_BUCKET.
+# Delivered in the `_collapse_*` helpers below: `proto`/`service` are lower-cased and stripped,
+# TON_IoT `service` is split on ";" with the first token kept, `proto` collapses to
+# {tcp, udp, icmp, other} and `service` to {-, dns, http, ftp, ssl, other}, `state`/`conn_state` map
+# through STATE_COLLAPSE, and anything else buckets to RARE_BUCKET.
 #
 # RARE_BUCKET is required for the IN-DISTRIBUTION split too, not only for cross-era: UNSW train
 # and test ship different `state` vocabularies (`ECO`/`PAR`/`URN`/`no` train-only, `ACC`/`CLO`
