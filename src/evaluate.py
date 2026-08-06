@@ -228,6 +228,9 @@ def run_regimes(model: Any, X_unsw_test: Any, y_unsw_test: Any,
                                     #   cross_era pair for all six models, retrained on the
                                     #   train fold without the protocol one-hots, so the
                                     #   quantity of interest is the difference of the deltas
+        phase6-crossera-no_conn_state  # the conn_state ablation, same design. It shares the
+                                    #   proto ablation's WIDTH (both d=18) and is a different
+                                    #   experiment; only the run_id separates them.
         phase7-recovery-f0.05       # Phase 7 extends the same scheme: one run_id per budget
         phase7-recovery-f0.25
 
@@ -341,10 +344,11 @@ def log_metrics(row: dict[str, Any], path: Any = METRICS_CSV) -> None:
         "phase4-baselines"                  # Phase 4, in-distribution ceiling
         "phase6-crossera"                   # Phase 6, full feature set
         "phase6-crossera-no_proto"          # same model + regime, `proto` ablated
+        "phase6-crossera-no_conn_state"     # same model + regime, `conn_state` ablated (also d=18)
         "phase7-recovery-f0.05"             # same model + regime, 5% fine-tune budget
         "phase7-recovery-f0.25"             # ... and 25%
 
-    Without the suffixes, every ``proto`` ablation would land on its unablated row and the recovery
+    Without the suffixes, every ablation would land on its unablated row and the recovery
     curve would collapse to whichever fraction ran last. The key is deliberately *not* a timestamp:
     a fixed label is what lets a re-run be diffed against the committed file at all.
     """
@@ -365,11 +369,17 @@ def log_metrics(row: dict[str, Any], path: Any = METRICS_CSV) -> None:
 
 # --- Phase 6 — the zero-shot cross-era run (RQ1) -------------------------------------------
 #
-# One `run_id` per condition; see the scheme documented in `run_regimes`. The two conditions this
+# One `run_id` per condition; see the scheme documented in `run_regimes`. The three conditions this
 # phase owns:
 #
-#   phase6-crossera           full shared feature set (d=22)
-#   phase6-crossera-no_proto  the `proto` ablation (d=18), retrained on the train fold
+#   phase6-crossera                full shared feature set (d=22)
+#   phase6-crossera-no_proto       the `proto` ablation (d=18), retrained on the train fold
+#   phase6-crossera-no_conn_state  the `conn_state` ablation (d=18), same design
+#
+# THE TWO ABLATIONS ARE DIFFERENT EXPERIMENTS THAT HAPPEN TO SHARE A WIDTH. `protocol` and
+# `conn_state` each encode to exactly four one-hot levels, so both conditions run at d=18. `d`
+# therefore does NOT identify a condition -- only the `run_id` and the `notes` string do. Never
+# write "the d=18 ablation"; name the feature.
 #
 # WHY THE ABLATION IS A RETRAIN AND NOT A TEST-TIME MASK. README's Limitations measures the
 # hazard: 18.31% of UNSW train rows use a protocol TON_IoT never contains, those rows are 91%
@@ -390,24 +400,42 @@ def log_metrics(row: dict[str, Any], path: Any = METRICS_CSV) -> None:
 # delta requires both halves, and an ablated cross_era row alone would be uncomparable to
 # anything.
 #
-# Dropping the four `protocol_*` columns from the transformed matrix is *exactly* equivalent to
-# refitting the Preprocessor without `protocol` -- one-hot encoding of one categorical column is
+# Dropping one feature's one-hot columns from the transformed matrix is *exactly* equivalent to
+# refitting the Preprocessor without that feature -- one-hot encoding of one categorical column is
 # independent of the others, and the numeric z-score parameters do not see it at all -- so it
-# needs no second preprocessor artifact and cannot disturb the frozen Phase 3 fit.
+# needs no second preprocessor artifact and cannot disturb the frozen Phase 3 fit. That holds for
+# both ablated categoricals.
+#
+# WHY `conn_state` GETS THE SAME TREATMENT. Unlike `proto`, whose hazard is a learned shortcut going
+# inert, the `conn_state` hazard is that the feature is *ours*: UNSW ships Argus `state` codes and
+# TON_IoT ships Zeek `conn_state` codes, the two vocabularies share ZERO tokens, and the coarse
+# completed / reset / no-response collapse that bridges them is a modelling decision we invented
+# (schema_map.STATE_COLLAPSE, and see deviations.md 3.2). It is also badly asymmetric across the two
+# eras -- measured on the train fold against TON_IoT, `reset` is 0.0421% vs 23.6757% (~560x) and the
+# RARE_BUCKET `other` level is 0.0057% vs 11.0556% (~1,900x). So part of the RQ1 drop could be our
+# own collapse carrying an instrumentation change rather than attacker evolution, and the only way
+# to bound that is to retrain without the feature and difference the deltas. The proposal committed
+# to evaluating the cross-era run with and without it; this condition is that commitment.
 
-#: Phase 6's two conditions. Fixed labels, never timestamps (see :func:`log_metrics`).
+#: Phase 6's three conditions. Fixed labels, never timestamps (see :func:`log_metrics`).
+#:
+#: The two ablation values are load-bearing STRINGS, not just identifiers: ``log_metrics`` upserts on
+#: ``(run_id, model, regime)`` and never deletes, so editing one of these spellings orphans the rows
+#: already committed under the old one and silently duplicates the condition under the new one.
 RUN_ID: str = "phase6-crossera"
-ABLATION_RUN_ID: str = f"{RUN_ID}-no_proto"
+PROTO_ABLATION_RUN_ID: str = f"{RUN_ID}-no_proto"
+CONN_STATE_ABLATION_RUN_ID: str = f"{RUN_ID}-no_conn_state"
 
 #: The regime labels, spelled identically to ``models.baselines.REGIME`` so Phase 4's
 #: in_distribution rows and Phase 6's cross_era rows join on the pair.
 IN_DISTRIBUTION: str = "in_distribution"
 CROSS_ERA: str = "cross_era"
 
-#: The categorical column the ablation removes, as ``schema_map`` spells it. The one-hot columns
-#: it expands to are derived from the fitted encoder rather than pattern-matched on a prefix, so a
-#: renamed level cannot silently ablate nothing.
+#: The categorical columns the two ablations remove, as ``schema_map`` spells them. The one-hot
+#: columns each expands to are derived from the fitted encoder rather than pattern-matched on a
+#: prefix, so a renamed level cannot silently ablate nothing.
 PROTOCOL_FEATURE: str = "protocol"
+CONN_STATE_FEATURE: str = "conn_state"
 
 #: Row counts and class balances every Phase 6 frame is checked against, from ``data/README.md``
 #: and the Phase 3 fold split (verified 2026-07-29 / 2026-08-01). These are asserted rather than
@@ -493,35 +521,79 @@ def transform_regime_frames(preprocessor: Any) -> dict[str, tuple[Any, Any]]:
     return frames
 
 
-def protocol_columns(preprocessor: Any) -> tuple[str, ...]:
-    """The transformed column names the ``protocol`` one-hot expands to, from the fitted encoder.
+def categorical_columns(preprocessor: Any, feature: str) -> tuple[str, ...]:
+    """The transformed column names one categorical feature's one-hot block expands to.
 
-    Derived from ``encoder_.categories_`` positionally rather than by matching a ``protocol_``
-    prefix, so the ablation cannot silently drop nothing (a renamed feature) or too much (a level
-    that happens to share the prefix). Raises if the column set it computes is not actually in the
-    frozen ``feature_names_``.
+    Derived from ``encoder_.categories_`` **positionally** rather than by matching a
+    ``f"{feature}_"`` prefix, so an ablation cannot silently drop nothing (a renamed feature) or too
+    much (a level of a *different* feature that happens to share the prefix -- ``protocol_other``,
+    ``service_other`` and ``conn_state_other`` all exist in the fitted schema).
+
+    Parameterized over ``feature`` rather than duplicated per ablation: Phase 6 ablates two of the
+    three categoricals, and a second copy of the guards below would be free to drift away from this
+    one -- the same argument :func:`evaluate` makes for not keeping a private metric helper.
+
+    Three guards, and note which failure each owns -- the second and third are NOT redundant:
+
+    * ``feature`` must be one of the fitted categoricals, or the ablation has nothing to remove.
+    * ``categorical_features_`` and ``categories_`` must be the same length, because ``start`` is a
+      prefix sum over the widths of every *earlier* feature. That is vacuous for ``protocol`` at
+      index 0 (``start`` is 0 however wrong the widths are) and load-bearing for ``conn_state`` at
+      index 2, whose block starts at 10.
+    * every derived name must be in the frozen ``feature_names_`` **and** carry ``feature``'s own
+      prefix. Membership alone does not suffice: a mis-ordered width would slide the slice onto a
+      different but *valid* one-hot block, whose names are all in ``feature_names_``, and the
+      ablation would then quietly remove the wrong feature under the right ``run_id``. The prefix is
+      a cross-check on the positional result, not the derivation -- ``get_feature_names_out`` emits
+      ``f"{input_feature}_{level}"``, so the two must agree or the encoder is not what this function
+      thinks it is.
     """
     categoricals = list(preprocessor.categorical_features_)
-    if PROTOCOL_FEATURE not in categoricals:
+    if feature not in categoricals:
         raise ValueError(
-            f"{PROTOCOL_FEATURE!r} is not among the Preprocessor's categorical features "
-            f"{categoricals}; the proto ablation has nothing to remove."
+            f"{feature!r} is not among the Preprocessor's categorical features {categoricals}; "
+            f"the {feature} ablation has nothing to remove."
+        )
+    widths = [len(levels) for levels in preprocessor.encoder_.categories_]
+    if len(widths) != len(categoricals):
+        raise RuntimeError(
+            f"the encoder holds {len(widths)} category blocks for {len(categoricals)} categorical "
+            f"features {categoricals}; the positional offset of every block after the first would "
+            "be wrong."
         )
     names = [str(name) for name in
              preprocessor.encoder_.get_feature_names_out(tuple(categoricals))]
-    widths = [len(levels) for levels in preprocessor.encoder_.categories_]
-    index = categoricals.index(PROTOCOL_FEATURE)
+    index = categoricals.index(feature)
     start = sum(widths[:index])
     columns = tuple(names[start:start + widths[index]])
 
     frozen = set(preprocessor.feature_names_)
     missing = [column for column in columns if column not in frozen]
-    if missing or not columns:
+    misprefixed = [column for column in columns if not column.startswith(f"{feature}_")]
+    if not columns or missing or misprefixed:
         raise RuntimeError(
-            f"derived protocol one-hot columns {columns} are not all in the fitted feature "
-            f"schema (missing {missing}) -- the encoder and feature_names_ disagree."
+            f"derived {feature} one-hot columns {columns} do not agree with the fitted feature "
+            f"schema (missing {missing}, wrong prefix {misprefixed}) -- the encoder and "
+            "feature_names_ disagree, or the block offsets have shifted."
         )
     return columns
+
+
+def ablated_columns(
+    full_columns: tuple[str, ...], dropped: tuple[str, ...], feature: str
+) -> tuple[str, ...]:
+    """``full_columns`` minus one feature's one-hot block, with the width change asserted.
+
+    The assertion is the point: a silent mismatch between "the columns we derived" and "the columns
+    actually removed" would report an ablation that did not happen at the width it claims.
+    """
+    remaining = tuple(column for column in full_columns if column not in set(dropped))
+    if len(remaining) != len(full_columns) - len(dropped):
+        raise RuntimeError(
+            f"the {feature} ablation removed {len(full_columns) - len(remaining)} columns, not the "
+            f"{len(dropped)} derived one-hots {list(dropped)}"
+        )
+    return remaining
 
 
 def phase6_models() -> dict[str, Callable[[int], Any]]:
@@ -616,9 +688,10 @@ def run_condition(
     Returns ``{model_name: {"in_distribution": {...}, "cross_era": {...}}}`` and upserts one row
     per (model, regime) under ``run_id``.
 
-    ``columns`` selects the feature subset -- the full 22 for the headline condition, the 18
-    without the protocol one-hots for the ablation -- and is applied identically to all three
-    frames, so the model, UNSW-test and TON_IoT always agree on the matrix.
+    ``columns`` selects the feature subset -- the full 22 for the headline condition, or 18 for
+    either ablation (dropping the ``protocol`` or the ``conn_state`` one-hots; the two are different
+    experiments at the same width) -- and is applied identically to all three frames, so the model,
+    UNSW-test and TON_IoT always agree on the matrix.
 
     ``log_in_distribution=False`` computes the in-distribution half (the delta needs it, and
     :func:`_check_against_phase4` verifies it) but does not write it: in the unablated condition
@@ -720,11 +793,14 @@ def run_condition(
 
 
 def run_phase6(log: bool = True) -> dict[str, dict[str, dict[str, dict[str, Any]]]]:
-    """Phase 6 end to end: both conditions, both regimes, all six models, logged.
+    """Phase 6 end to end: all three conditions, both regimes, all six models, logged.
 
     Returns ``{run_id: {model: {regime: metrics}}}``. The ``Preprocessor`` is sealed for the whole
     run (see :func:`sealed`), so no path through this function can refit it -- the target era is
     transformed through the frozen Phase 3 artifact or the run raises.
+
+    The two ablations (`proto`, `conn_state`) both land at d=18 and are **not** the same experiment;
+    each is comparable to the full d=22 condition and to nothing else.
     """
     preprocessor = load_preprocessor()
     with sealed(
@@ -736,10 +812,18 @@ def run_phase6(log: bool = True) -> dict[str, dict[str, dict[str, dict[str, Any]
     ):
         frames = transform_regime_frames(preprocessor)
         full_columns = tuple(preprocessor.feature_names_)
-        proto = protocol_columns(preprocessor)
-        ablated_columns = tuple(column for column in full_columns if column not in set(proto))
-        if len(ablated_columns) != len(full_columns) - len(proto):  # pragma: no cover
-            raise RuntimeError("the proto ablation removed an unexpected number of columns")
+        proto = categorical_columns(preprocessor, PROTOCOL_FEATURE)
+        conn_state = categorical_columns(preprocessor, CONN_STATE_FEATURE)
+        # One line, and it closes the only way the two conditions could silently become
+        # near-duplicates of each other under a future schema_map edit.
+        if set(proto) & set(conn_state):  # pragma: no cover
+            raise RuntimeError(
+                f"the {PROTOCOL_FEATURE} and {CONN_STATE_FEATURE} one-hot blocks overlap on "
+                f"{sorted(set(proto) & set(conn_state))}; the two ablations would not be "
+                "independent conditions."
+            )
+        no_proto = ablated_columns(full_columns, proto, PROTOCOL_FEATURE)
+        no_conn_state = ablated_columns(full_columns, conn_state, CONN_STATE_FEATURE)
 
         from .models.baselines import BASELINE_FACTORIES  # noqa: PLC0415 - circular at top level
 
@@ -751,8 +835,13 @@ def run_phase6(log: bool = True) -> dict[str, dict[str, dict[str, dict[str, Any]
             )
 
         print(
-            f"feature schema: {len(full_columns)} columns; ablation drops {len(proto)} "
-            f"protocol one-hots {list(proto)} -> {len(ablated_columns)} columns"
+            f"feature schema: {len(full_columns)} columns\n"
+            f"  {PROTOCOL_FEATURE} ablation drops {len(proto)} one-hots {list(proto)} "
+            f"-> {len(no_proto)} columns\n"
+            f"  {CONN_STATE_FEATURE} ablation drops {len(conn_state)} one-hots "
+            f"{list(conn_state)} -> {len(no_conn_state)} columns\n"
+            "  Both land at the same width and are NOT the same experiment; the run_id and the "
+            "notes column distinguish them, not d."
         )
 
         results = {
@@ -766,20 +855,57 @@ def run_phase6(log: bool = True) -> dict[str, dict[str, dict[str, dict[str, Any]
                 # scratch models get an in-distribution row from this condition.
                 log_in_distribution=False,
             ),
-            ABLATION_RUN_ID: run_condition(
-                ABLATION_RUN_ID,
+            PROTO_ABLATION_RUN_ID: run_condition(
+                PROTO_ABLATION_RUN_ID,
                 frames,
-                ablated_columns,
+                no_proto,
                 condition_note="proto ablation: protocol one-hots dropped, retrained on train fold",
                 log=log,
                 # A delta needs both halves, and no other run_id holds an ablated in-distribution
                 # row, so this condition logs its own matched pair for every model.
                 log_in_distribution=True,
             ),
+            CONN_STATE_ABLATION_RUN_ID: run_condition(
+                CONN_STATE_ABLATION_RUN_ID,
+                frames,
+                no_conn_state,
+                condition_note=(
+                    "conn_state ablation: connection-state one-hots dropped, retrained on train "
+                    "fold"
+                ),
+                log=log,
+                # Same reason as the proto ablation. Note that no_proto's in-distribution rows are
+                # NOT a substitute despite also being d=18: different feature set, different fitted
+                # model. `log_in_distribution=False` is also not merely "log less" here -- it would
+                # route the four baselines into _check_against_phase4(), whose 1e-4 tolerance an
+                # ablated model legitimately blows past, and the run would raise.
+                log_in_distribution=True,
+            ),
         }
 
     _print_headline(results[RUN_ID])
-    _print_ablation_contrast(results[RUN_ID], results[ABLATION_RUN_ID])
+    _print_ablation_contrast(
+        results[RUN_ID],
+        results[PROTO_ABLATION_RUN_ID],
+        run_id=PROTO_ABLATION_RUN_ID,
+        label=PROTOCOL_FEATURE,
+        interpretation=(
+            "A Δ-of-Δ near zero means the drop is not the `other`-bucket artifact; a large positive\n"
+            "  one means part of the with-protocol drop was that learned shortcut going inert."
+        ),
+    )
+    _print_ablation_contrast(
+        results[RUN_ID],
+        results[CONN_STATE_ABLATION_RUN_ID],
+        run_id=CONN_STATE_ABLATION_RUN_ID,
+        label=CONN_STATE_FEATURE,
+        interpretation=(
+            "A Δ-of-Δ near zero means the drop is not our Argus->Zeek state collapse; a large\n"
+            "  positive one means part of the with-conn_state drop was the hand-written collapse --\n"
+            "  `reset` 0.0421% of UNSW train rows vs 23.6757% of TON_IoT's, `other` 0.0057% vs\n"
+            "  11.0556% -- carrying an instrumentation change rather than attacker evolution."
+        ),
+    )
     return results
 
 
@@ -795,7 +921,9 @@ def _print_headline(results: dict[str, dict[str, dict[str, Any]]]) -> None:
         f"  cross_era:       TON_IoT    n={first[CROSS_ERA]['n_test']:,}  "
         f"normal {1 - cross_share:.2%} / attack {cross_share:.2%}\n"
         f"  Lead with ROC-AUC (prevalence-insensitive). Part of every F1 delta is the balance "
-        f"change, not drift.\n{'-' * 100}\n"
+        f"change, not drift.\n"
+        f"  Δ = in_distribution − cross_era throughout (metric_deltas), so Δ is what the model LOST:"
+        f" positive = degraded, negative = improved.\n{'-' * 100}\n"
         f"{'model':<16}{'AUC in':>9}{'AUC cross':>11}{'Δ AUC':>9}"
         f"{'F1 in':>9}{'F1 cross':>10}{'Δ F1':>9}{'Δ bal-acc':>11}{'Δ macro-F1':>12}"
     )
@@ -810,42 +938,66 @@ def _print_headline(results: dict[str, dict[str, dict[str, Any]]]) -> None:
         )
     dummy = results.get("dummy")
     if dummy is not None:
+        # Δ from metric_deltas, NOT an inline cross - in: this footnote used to compute the
+        # difference the other way round, so it printed the opposite sign to the table directly
+        # above it. One convention per run (in - cross, i.e. "what was lost").
+        dummy_deltas = metric_deltas(dummy)
         print(
             f"{'-' * 100}\n"
             f"Prevalence artifact: the majority-class dummy's F1 "
             f"{'rises' if dummy[CROSS_ERA]['f1'] > dummy[IN_DISTRIBUTION]['f1'] else 'falls'} "
             f"{dummy[IN_DISTRIBUTION]['f1']:.4f} -> {dummy[CROSS_ERA]['f1']:.4f} cross-era at "
             f"ROC-AUC {dummy[CROSS_ERA]['roc_auc']:.4f}, on class balance alone. Any real model's "
-            f"F1 delta must be read against that {dummy[CROSS_ERA]['f1'] - dummy[IN_DISTRIBUTION]['f1']:+.4f}."
+            f"F1 delta must be read against that Δ F1 = {dummy_deltas['f1']:+.4f} "
+            f"(negative because a model that GAINS F1 lost nothing)."
         )
 
 
 def _print_ablation_contrast(
     base: dict[str, dict[str, dict[str, Any]]],
     ablated: dict[str, dict[str, dict[str, Any]]],
+    *,
+    run_id: str,
+    label: str,
+    interpretation: str,
 ) -> None:
-    """The difference of the deltas: how much of the drop survives dropping ``proto``."""
+    """The difference of the deltas: how much of the drop survives dropping one feature.
+
+    ``label`` MUST name the ablated feature. Both ablations run at d=18, so the width is not a
+    disambiguator and an unlabelled table is unreadable next to its sibling.
+
+    Only ever call this with ``base`` = the FULL condition: each ablation is comparable to
+    ``phase6-crossera`` and to nothing else. ``no_proto`` vs ``no_conn_state`` is not a valid
+    contrast (neither nests inside the other and they differ in two ways at once), which is why this
+    function has no mode that prints it.
+
+    Δ is ``in_distribution − cross_era`` on both sides, so Δ-of-Δ is
+    ``metric_deltas(full) − metric_deltas(ablated)``: positive means the full-feature model lost more
+    than the ablated one, i.e. the removed feature was carrying part of the drop.
+    """
     print(
-        f"\n{'=' * 100}\nproto ablation — {ABLATION_RUN_ID} vs {RUN_ID}\n"
+        f"\n{'=' * 104}\n{label} ablation — {run_id} vs {RUN_ID}\n"
         "  Each side is its own matched in_distribution/cross_era pair, so the comparable\n"
-        "  quantity is the difference of the deltas: how much of the with-proto drop survives\n"
-        "  when the protocol one-hots were never available to be learned.\n"
-        f"{'-' * 100}\n"
-        f"{'model':<16}{'Δ AUC proto':>13}{'Δ AUC no_proto':>16}{'Δ of Δ':>10}"
-        f"{'Δ F1 proto':>13}{'Δ F1 no_proto':>15}{'Δ of Δ':>10}"
+        f"  quantity is the difference of the deltas: how much of the with-{label} drop survives\n"
+        f"  when the {label} one-hots were never available to be learned.\n"
+        f"  Δ = in − cross (what was lost); Δ-of-Δ = Δ full − Δ no_{label}.\n"
+        f"{'-' * 104}\n"
+        # Field width 22: the longest label this renders is `Δ AUC no_conn_state` at 19 characters,
+        # and at width 19 it consumed the whole field and butted against the column to its left.
+        f"{'model':<16}{'Δ AUC full':>13}{f'Δ AUC no_{label}':>22}{'Δ of Δ':>10}"
+        f"{'Δ F1 full':>13}{f'Δ F1 no_{label}':>22}{'Δ of Δ':>10}"
     )
     for name in base:
-        with_proto = metric_deltas(base[name])
+        full = metric_deltas(base[name])
         without = metric_deltas(ablated[name])
         print(
-            f"{name:<16}{with_proto['roc_auc']:>+13.4f}{without['roc_auc']:>+16.4f}"
-            f"{with_proto['roc_auc'] - without['roc_auc']:>+10.4f}"
-            f"{with_proto['f1']:>+13.4f}{without['f1']:>+15.4f}"
-            f"{with_proto['f1'] - without['f1']:>+10.4f}"
+            f"{name:<16}{full['roc_auc']:>+13.4f}{without['roc_auc']:>+22.4f}"
+            f"{full['roc_auc'] - without['roc_auc']:>+10.4f}"
+            f"{full['f1']:>+13.4f}{without['f1']:>+22.4f}"
+            f"{full['f1'] - without['f1']:>+10.4f}"
         )
     print(
-        "  A Δ-of-Δ near zero means the drop is not the `other`-bucket artifact; a large positive\n"
-        "  one means part of the with-proto drop was that learned signal going inert."
+        f"  {interpretation}"
     )
 
 
@@ -857,8 +1009,9 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m src.evaluate",
         description=(
             "Phase 6: evaluate every Phase 4-5 model in both regimes (in-distribution on "
-            "UNSW-test, zero-shot cross-era on TON_IoT) plus the proto ablation, and upsert the "
-            "rows into reports/metrics.csv. Nothing is refit on UNSW-test or TON_IoT."
+            "UNSW-test, zero-shot cross-era on TON_IoT) plus the `proto` and `conn_state` "
+            "ablations, and upsert the rows into reports/metrics.csv. Nothing is refit on "
+            "UNSW-test or TON_IoT."
         ),
     )
     parser.add_argument(
@@ -874,7 +1027,9 @@ def main(argv: list[str] | None = None) -> int:
     results = run_phase6()
     rows = sum(
         len(regimes) for condition in results.values() for regimes in condition.values()
-    ) - len(_PHASE4_MODELS)  # the baselines' in-distribution halves stay Phase 4's
+    ) - len(_PHASE4_MODELS)  # the baselines' in-distribution halves stay Phase 4's -- subtracting a
+    # flat len(_PHASE4_MODELS) is correct only while EXACTLY ONE condition passes
+    # log_in_distribution=False. Add a second such condition and this undercounts.
     print(f"\nlogged {rows} rows across {len(results)} run_ids -> {METRICS_CSV}")
     return 0
 
