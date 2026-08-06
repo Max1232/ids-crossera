@@ -18,9 +18,6 @@ __pycache__/
 .venv/
 venv/
 
-# Notebooks
-.ipynb_checkpoints/
-
 # Local Claude Code guidance — intentionally not shared with collaborators or graders.
 # Anything a collaborator must not get wrong belongs in README.md instead.
 CLAUDE.md
