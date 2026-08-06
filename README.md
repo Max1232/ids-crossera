@@ -78,7 +78,7 @@ result), Phase 7 the transfer-learning recovery curve (RQ2, the secondary result
 figures. **All the code is written**: 38 tests green, and `./run.sh` rebuilds all eleven committed
 artifacts byte-identically from the raw CSVs in about five minutes. What remains of Phase 9 is the
 write-up — report, deck and demo recording — see [Implementation steps](#implementation-steps) for
-what it owes. **Phase 8 (RQ3) was cut on the timeline** and `lab/` holds its README and no code.
+what it owes. **Phase 8 (RQ3) was cut on the timeline**; nothing for it was ever built.
 
 Where the delivered build departs from the approved proposal, and why, is recorded in
 [`deviations.md`](deviations.md).
@@ -309,7 +309,6 @@ ids-crossera/
 │   ├── transfer.py           # RQ2 adaptation + recovery curve
 │   ├── evaluate.py           # metrics + both regimes
 │   └── plots.py              # Phase 9: the seven figures, from committed artifacts only
-├── lab/                      # RQ3 stretch — CUT; README only, no code
 └── reports/
     ├── metrics.csv           # the committed run log; frozen 14-column header
     ├── confusion_matrices.json  # Phase 6 sidecar: the 2x2 counts the log header has no room for
@@ -492,8 +491,9 @@ scored on the full target frame including this phase's fine-tune pool. Curve in
 
 **Phase 8 — Stretch: live 2026 malware probe** *(**CUT** — optional, and dropped for time)*
 Not delivered. Neither hard gate below was ever attempted, so there is no authorization on file and
-no air-gapped environment; `lab/` holds its README and no code. This is the exit the proposal
-reserved, and RQ1/RQ2 stand without it. What it *would* have required, kept for the record:
+no air-gapped environment, and no code, capture scripts or `lab/` directory exist for it anywhere in
+the repo. This is the exit the proposal reserved, and RQ1/RQ2 stand without it. What it *would* have
+required, kept for the record:
 two hard gates before anything is downloaded or run — **authorization** (instructor sign-off plus
 Northeastern policy) and a **verified air-gap** (isolated virtual segment, no route to the internet
 or campus network, disposable snapshots). Then a few catalogued samples from **MalwareBazaar** with

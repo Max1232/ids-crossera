@@ -106,8 +106,10 @@ matrices as such.
 is the exit the proposal itself reserved ("if isolation cannot be safely guaranteed or time runs
 short, we drop the live probe and still have a complete project"). This is a settled decision, not a
 pending one: neither hard gate was ever attempted, so there is no instructor authorization on file
-and no air-gapped environment, and `lab/` holds its README and no code. The public-dataset core
-(Phases 0–7 plus 9) is the complete project, and RQ1/RQ2 are answered without it.
+and no air-gapped environment, and no code exists for it anywhere in the repo — the `lab/` directory
+that once held the plan was **removed 2026-08-06** rather than left as an empty invitation to start.
+The public-dataset core (Phases 0–7 plus 9) is the complete project, and RQ1/RQ2 are answered without
+it.
 **Consequence for the two claims that leaned on RQ3:** the "decade-forward" test does not exist, so
 the UNSW→TON_IoT gap of ~4–5 years is the *only* temporal span measured, and §2.1's upper-bound
 caveat has no live-capture counterweight. Say both out loud rather than leaving RQ3 unmentioned.
@@ -731,7 +733,7 @@ was touched** — 38 tests green, `reports/metrics.csv` still md5
 | § | Was | Now | Basis |
 |---|---|---|---|
 | preamble | "`Implementation-Plan.md` (**mirrored by hand to HackMD**)" | clause dropped | HackMD was retired 2026-08-06 and its last state is stale; this was the final surviving pointer to it, and it sat in a committed collaborator-facing file |
-| 1.4 | "**Status:** … cut first if time is short. **May not land**" — contingent | "**not delivered** — cut on the timeline", plus the two claims RQ3's absence weakens | Phase 8 is a settled cut, not a pending one: neither hard gate was attempted and `lab/` holds a README and no code |
+| 1.4 | "**Status:** … cut first if time is short. **May not land**" — contingent | "**not delivered** — cut on the timeline", plus the two claims RQ3's absence weakens | Phase 8 is a settled cut, not a pending one: neither hard gate was attempted, and the `lab/` directory was removed outright in the same pass |
 | 1.3 | silent on the proposal's conditional per-family confusion matrices | states what was delivered instead (per-family F1/ROC-AUC across 369 rows + Figs 5–6) and why a one-vs-normal 2×2 is the weaker unit | proposal Metrics: "per-attack-family confusion matrices **if time allows**" — conditional, so not a breach, but a grader reading both documents will look for it |
 
 **Verified green in the same pass, against the handout's three code constraints.** ≥1 classifier from
@@ -739,9 +741,10 @@ first principles — two, and importing either loads no `sklearn`/`pandas`/`torc
 heavy imports are function-local to the CLI driver paths, annotated as such). No LLM or transformer
 anywhere. One-command reproducibility: `./run.sh` rebuilds all 11 committed artifacts
 byte-identically from the raw CSVs. Zero `NotImplementedError`/`TODO`/`FIXME`/`...` bodies remain in
-`src/`, `tests/`, `run.sh` or `lab/`; the only bare `pass` (`config.py`'s pre-numpy `ImportError`
-arm) and the only single-`raise` body (`evaluate.py`'s `sealed()` closure) are both intentional
-guards.
+`src/`, `tests/` or `run.sh`; the only bare `pass` (`config.py`'s pre-numpy `ImportError` arm) and the
+only single-`raise` body (`evaluate.py`'s `sealed()` closure) are both intentional guards. The `lab/`
+directory was deleted in the same pass, so **every tracked path in the repo is delivered work** —
+there is no scaffold left standing for a phase that will not run.
 
 **What is left is not code.** The 6-page report, the ≤6-min deck, the pre-recorded `./run.sh` demo,
 and grader access to the repo. Every phase this file documents is delivered.
