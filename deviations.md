@@ -2,10 +2,10 @@
 
 _Consolidated record of where the delivered project departs from the scope promised in
 `Proposal-Final.md`, plus the substantive methodological decisions a reader could reasonably
-question. Last updated: 2026-08-06 (content through **Phase 9**. §§3.14–3.17 record the four Phase 9
-decisions a grader could question, and §1.3's coverage percentage now names its basis — the earlier
-figure was measured on a different UNSW frame than the figure it describes. See the changelog at the
-foot of this file.)_
+question. Last updated: 2026-08-06 (content through **Phase 9**, and the code is complete as of that
+date — §7 records the final audit. §§3.14–3.17 record the four Phase 9 decisions a grader could
+question; §1.3's coverage percentage now names its basis, and §1.4 states Phase 8 as cut rather than
+pending. See the two changelogs at the foot of this file.)_
 
 **Δ convention, everywhere in this file:** `Δ = in_distribution − cross_era`, i.e. **what the model
 lost**. Positive = degraded, negative = improved. This is `evaluate.metric_deltas()`, and it is what
@@ -22,8 +22,7 @@ feeds.
 It is **not** a source of authority and **not** a log of routine engineering fixes:
 
 - Scope is owned by `Proposal-Final.md`. The build and its per-phase deviations are owned by
-  `Implementation-Plan.md` (mirrored by hand to HackMD). This file consolidates and points back;
-  it never overrides them.
+  `Implementation-Plan.md`. This file consolidates and points back; it never overrides them.
 - Mid-build engineering course-corrections stay in the plan. Only decisions that change the
   **promised scope** or that a grader would question belong here.
 - When an entry below needs to change, change it in the authoritative file first, then reflect it
@@ -88,13 +87,32 @@ regime is UNSW-**test**, not the train fold, and the caption computes both share
 named `metrics.csv` rows (`n_test × positive_rate`) rather than transcribing them, so it cannot drift
 from this table. The three-family restriction applies **only** to the per-family breakdown — it never
 narrows the binary label (§3.10).
+
+**The per-family unit is F1 / ROC-AUC, not a confusion matrix.** The proposal's Metrics paragraph
+offered "per-attack-family confusion matrices **if time allows**" — a conditional, so this is not a
+scope breach, but a grader reading the two documents side by side will look for the matrices and
+should find this note instead. Delivered in their place: `reports/per_family_metrics.csv` (369 rows,
+its own key including `family_set` — §3.16) carrying precision, recall, F1, ROC-AUC, accuracy,
+balanced accuracy and macro-F1 per family, plus the two figures those rows drive. Every family is
+scored **one-vs-normal**, and that is what makes a matrix the weaker unit here: an attack family's own
+rows are all-positive, so a 2×2 over them alone has one populated row and its F1 collapses to a
+relabelling of recall. Aggregate confusion matrices *are* delivered, for all six models across both
+regimes (`reports/confusion_matrices.json`, Fig 3) — the omission is per-family, not confusion
+matrices as such.
 **Report home:** Data & Experiments + Results (per-family figure caveat).
 
-### 1.4 RQ3 live-malware probe — in scope as optional, cut-first
-**Promised:** optional stretch. **Status:** gated behind written instructor authorization + a
-Northeastern policy check + a verified air-gap, and cut first if time is short. May not land; the
-public-dataset core (Phases 0–7, 9) is a complete project without it.
-**Report home:** only if executed; otherwise omit.
+### 1.4 RQ3 live-malware probe — promised as an optional stretch, **not delivered**
+**Promised:** optional stretch. **Delivered:** nothing — the phase was **cut on the timeline**, which
+is the exit the proposal itself reserved ("if isolation cannot be safely guaranteed or time runs
+short, we drop the live probe and still have a complete project"). This is a settled decision, not a
+pending one: neither hard gate was ever attempted, so there is no instructor authorization on file
+and no air-gapped environment, and `lab/` holds its README and no code. The public-dataset core
+(Phases 0–7 plus 9) is the complete project, and RQ1/RQ2 are answered without it.
+**Consequence for the two claims that leaned on RQ3:** the "decade-forward" test does not exist, so
+the UNSW→TON_IoT gap of ~4–5 years is the *only* temporal span measured, and §2.1's upper-bound
+caveat has no live-capture counterweight. Say both out loud rather than leaving RQ3 unmentioned.
+**Report home:** one sentence stating RQ3 was scoped as optional and dropped for time — a reader
+comparing the repo against the proposal will look for it, and silence reads worse than the cut.
 
 ### 1.5 EDA notebook — dropped in favor of scripted figures
 **Delivered:** `reports/schema_catalogue.{md,csv}` covers the Phase 1 EDA, and graded figures come
@@ -702,3 +720,28 @@ contradicting §3.1's 8.10% zero-rate. It does not: the two measure different qu
 *zero*-rate. 33,778 TON rows sit strictly between 0 and 46, which is the whole difference. The full
 `split == "train"` frame has minimum 28 — using that basis is what produces the spurious 17,094 /
 8.10% figure. Both entries stand as written.
+
+## 7. Corrections log — 2026-08-06 (final code audit)
+
+Three staleness fixes from an end-of-build pass that checked the delivered repo against the course
+handout, `Proposal-Final.md` and `Implementation-Plan.md`. **No delivered number changed and no code
+was touched** — 38 tests green, `reports/metrics.csv` still md5
+`116def31c6bca1bb788d4a86f9cc976e`.
+
+| § | Was | Now | Basis |
+|---|---|---|---|
+| preamble | "`Implementation-Plan.md` (**mirrored by hand to HackMD**)" | clause dropped | HackMD was retired 2026-08-06 and its last state is stale; this was the final surviving pointer to it, and it sat in a committed collaborator-facing file |
+| 1.4 | "**Status:** … cut first if time is short. **May not land**" — contingent | "**not delivered** — cut on the timeline", plus the two claims RQ3's absence weakens | Phase 8 is a settled cut, not a pending one: neither hard gate was attempted and `lab/` holds a README and no code |
+| 1.3 | silent on the proposal's conditional per-family confusion matrices | states what was delivered instead (per-family F1/ROC-AUC across 369 rows + Figs 5–6) and why a one-vs-normal 2×2 is the weaker unit | proposal Metrics: "per-attack-family confusion matrices **if time allows**" — conditional, so not a breach, but a grader reading both documents will look for it |
+
+**Verified green in the same pass, against the handout's three code constraints.** ≥1 classifier from
+first principles — two, and importing either loads no `sklearn`/`pandas`/`torch`/`matplotlib` (the
+heavy imports are function-local to the CLI driver paths, annotated as such). No LLM or transformer
+anywhere. One-command reproducibility: `./run.sh` rebuilds all 11 committed artifacts
+byte-identically from the raw CSVs. Zero `NotImplementedError`/`TODO`/`FIXME`/`...` bodies remain in
+`src/`, `tests/`, `run.sh` or `lab/`; the only bare `pass` (`config.py`'s pre-numpy `ImportError`
+arm) and the only single-`raise` body (`evaluate.py`'s `sealed()` closure) are both intentional
+guards.
+
+**What is left is not code.** The 6-page report, the ≤6-min deck, the pre-recorded `./run.sh` demo,
+and grader access to the repo. Every phase this file documents is delivered.

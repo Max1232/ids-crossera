@@ -23,7 +23,8 @@ honest numbers: **how much the detector degrades**, and **how cheaply that can b
 - **RQ2 — correction:** How little modern labeled data does transfer learning need to recover that
   performance?
 - **RQ3 — stretch (optional):** Does the model flag traffic from live, in-house-detonated 2026
-  malware — a full decade forward from the training data?
+  malware — a full decade forward from the training data? **Not run** — scoped as optional and cut on
+  the timeline; see [`deviations.md`](deviations.md) §1.4. RQ1 and RQ2 are answered without it.
 
 ## Limitations
 
@@ -74,8 +75,10 @@ that level is effectively untrained yet active cross-era.
 first look, Phase 2 feature alignment, Phase 3 preprocessing, Phase 4 in-distribution baselines,
 Phase 5 both from-scratch models, Phase 6 the zero-shot cross-era evaluation (RQ1, the primary
 result), Phase 7 the transfer-learning recovery curve (RQ2, the secondary result), Phase 9 the
-figures. What remains of Phase 9 is the write-up — report, deck and demo recording (Phase 8 is the
-optional stretch) — see [Implementation steps](#implementation-steps) for what it owes.
+figures. **All the code is written**: 38 tests green, and `./run.sh` rebuilds all eleven committed
+artifacts byte-identically from the raw CSVs in about five minutes. What remains of Phase 9 is the
+write-up — report, deck and demo recording — see [Implementation steps](#implementation-steps) for
+what it owes. **Phase 8 (RQ3) was cut on the timeline** and `lab/` holds its README and no code.
 
 Where the delivered build departs from the approved proposal, and why, is recorded in
 [`deviations.md`](deviations.md).
@@ -306,7 +309,7 @@ ids-crossera/
 │   ├── transfer.py           # RQ2 adaptation + recovery curve
 │   ├── evaluate.py           # metrics + both regimes
 │   └── plots.py              # Phase 9: the seven figures, from committed artifacts only
-├── lab/                      # RQ3 stretch: capture → feature-map scripts (optional)
+├── lab/                      # RQ3 stretch — CUT; README only, no code
 └── reports/
     ├── metrics.csv           # the committed run log; frozen 14-column header
     ├── confusion_matrices.json  # Phase 6 sidecar: the 2x2 counts the log header has no room for
@@ -345,7 +348,7 @@ Four rules shape every design decision below:
   table for the target era.
 
 Scope is bounded: **Phases 0–7 plus 9** are the guaranteed core and make a complete project on their
-own. Phase 8 is cut first if anything has to go.
+own. Phase 8 was the one phase held as cut-first, and it was cut.
 
 ## Implementation steps
 
@@ -487,8 +490,11 @@ point is **re-measured on the frozen test half** rather than reused from Phase 6
 scored on the full target frame including this phase's fine-tune pool. Curve in
 [Status](#status); the plot itself is Phase 9's.
 
-**Phase 8 — Stretch: live 2026 malware probe** *(optional — cut first; do NOT start until 1–7 land)*
-Two hard gates before anything is downloaded or run: **authorization** (instructor sign-off plus
+**Phase 8 — Stretch: live 2026 malware probe** *(**CUT** — optional, and dropped for time)*
+Not delivered. Neither hard gate below was ever attempted, so there is no authorization on file and
+no air-gapped environment; `lab/` holds its README and no code. This is the exit the proposal
+reserved, and RQ1/RQ2 stand without it. What it *would* have required, kept for the record:
+two hard gates before anything is downloaded or run — **authorization** (instructor sign-off plus
 Northeastern policy) and a **verified air-gap** (isolated virtual segment, no route to the internet
 or campus network, disposable snapshots). Then a few catalogued samples from **MalwareBazaar** with
 hashes recorded, traffic captured via tcpdump/Zeek, and only the ~8–10 aligned features extracted
