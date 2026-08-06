@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import csv
+import json
 import time
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -25,7 +26,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from .config import METRICS_CSV, PREPROCESSOR, RANDOM_SEED, set_seeds
+from .config import CONFUSION_JSON, METRICS_CSV, PREPROCESSOR, RANDOM_SEED, set_seeds
 
 # The ten original columns are FROZEN — never reorder or rename them. `log_metrics()` rewrites the
 # whole file against this header on every call but carries already-logged rows forward *by column
@@ -784,12 +785,111 @@ def run_condition(
                         "seed": RANDOM_SEED,
                         "notes": f"{condition_note}; {_REGIME_NOTES[regime]}; d={len(selected)}",
                         # The confusion matrix has no column in the frozen 14-field header, so it
-                        # goes to stdout only; Phase 9 renders it as a figure.
+                        # is stripped here; it reaches disk through the sidecar `run_phase6` writes
+                        # (see `write_confusion_matrices`), which is what Phase 9 renders.
                         **{k: v for k, v in regimes[regime].items() if k != "confusion_matrix"},
                     }
                 )
             )
     return results
+
+
+# --- The confusion-matrix sidecar ----------------------------------------------------------
+#
+# WHY A SECOND ARTIFACT RATHER THAN FOUR MORE COLUMNS. :func:`evaluate` already computes a confusion
+# matrix for every (condition, model, regime) and :func:`run_condition` prints it, but
+# :data:`METRICS_HEADER` is frozen and a 2x2 integer matrix is not a scalar metric -- widening the
+# committed run log by four count columns for one figure's sake is exactly the kind of change that
+# header comment forbids. So the matrices go to their own file, beside the log.
+#
+# WHY PERSIST AT ALL. Phase 9 renders them, and `python -m src.plots` must run standalone in
+# seconds. Recomputing them there would mean re-fitting eighteen models (~3 min) *and* re-running
+# the phase whose output it is meant to be illustrating -- and inside `./run.sh`, which already runs
+# Phase 6 immediately before Phase 9, it would run the same three conditions twice. Writing what
+# was already computed costs one small file and keeps the figure impossible to disagree with the
+# run it came from.
+#
+# Same idempotence contract as `log_metrics`: keys are sorted, floats are rounded to
+# METRIC_DECIMALS, and the fits upstream are seeded, so re-running leaves the file byte-identical.
+
+#: Version tag written into (and required back out of) the sidecar. A reader that finds a different
+#: tag is looking at a file some other version of this code wrote, and the safe thing to do with a
+#: figure's only data source is refuse it rather than guess at the shape.
+CONFUSION_SCHEMA: str = "ids-crossera/confusion-matrices/1"
+
+#: The per-(model, regime) fields the sidecar carries. ``n_test`` and ``positive_rate`` ride along
+#: for the same reason they have columns in ``METRICS_HEADER``: they let a reader check that a
+#: matrix sums to the set it claims to have been measured on, without a join.
+CONFUSION_FIELDS: tuple[str, ...] = ("confusion_matrix", "n_test", "positive_rate")
+
+
+def write_confusion_matrices(
+    results: dict[str, dict[str, dict[str, dict[str, Any]]]], path: Any = CONFUSION_JSON
+) -> Path:
+    """Persist :func:`run_phase6`'s confusion matrices to ``reports/confusion_matrices.json``.
+
+    Takes the whole ``{run_id: {model: {regime: metrics}}}`` return value and writes all three
+    conditions -- the full feature set and both ablations -- because the file is a record of what
+    the phase measured, not a feed for one figure. Selecting the condition is the *reader's* job
+    (Phase 9's confusion figure renders ``phase6-crossera`` only, and asserts it).
+    """
+    payload = {
+        "schema": CONFUSION_SCHEMA,
+        "written_by": "src.evaluate.run_phase6",
+        "seed": RANDOM_SEED,
+        "labels": [0, POSITIVE_LABEL],
+        "cell_order": [["tn", "fp"], ["fn", "tp"]],
+        "conditions": {
+            run_id: {
+                model: {
+                    regime: {
+                        field: (
+                            round(scores[field], METRIC_DECIMALS)
+                            if isinstance(scores[field], float)
+                            else scores[field]
+                        )
+                        for field in CONFUSION_FIELDS
+                    }
+                    for regime, scores in regimes.items()
+                }
+                for model, regimes in condition.items()
+            }
+            for run_id, condition in results.items()
+        },
+    }
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return path
+
+
+def read_confusion_matrices(path: Any = CONFUSION_JSON) -> dict[str, dict[str, dict[str, Any]]]:
+    """Read the sidecar back as ``{run_id: {model: {regime: {...}}}}``.
+
+    Raises with an actionable message when the file is absent: nothing downstream recomputes these,
+    by design, so the fix is always "run Phase 6".
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} not found -- Phase 6 has not been run in this working tree. The confusion "
+            "matrices are computed and persisted by `evaluate.run_phase6()`; nothing downstream "
+            "recomputes them, because that would mean re-fitting every model. Run "
+            "`python -m src.evaluate --regimes`, or `./run.sh`, which runs Phase 6 before Phase 9."
+        )
+    payload = json.loads(path.read_text())
+    if payload.get("schema") != CONFUSION_SCHEMA:
+        raise ValueError(
+            f"{path} declares schema {payload.get('schema')!r}, expected {CONFUSION_SCHEMA!r}. "
+            "Regenerate it with `python -m src.evaluate --regimes` rather than reading a shape "
+            "this code does not know."
+        )
+    if payload.get("labels") != [0, POSITIVE_LABEL]:
+        raise ValueError(
+            f"{path} was written with labels {payload.get('labels')}, expected "
+            f"{[0, POSITIVE_LABEL]}; the cell order [[tn, fp], [fn, tp]] would not hold."
+        )
+    return payload["conditions"]
 
 
 def run_phase6(log: bool = True) -> dict[str, dict[str, dict[str, dict[str, Any]]]]:
@@ -801,6 +901,11 @@ def run_phase6(log: bool = True) -> dict[str, dict[str, dict[str, dict[str, Any]
 
     The two ablations (`proto`, `conn_state`) both land at d=18 and are **not** the same experiment;
     each is comparable to the full d=22 condition and to nothing else.
+
+    ``log`` gates **both** on-disk outputs: the ``reports/metrics.csv`` upserts and the
+    ``reports/confusion_matrices.json`` sidecar Phase 9's confusion figure reads (see
+    :func:`write_confusion_matrices` for why the matrices need a file of their own). ``log=False``
+    measures and prints without touching either.
     """
     preprocessor = load_preprocessor()
     with sealed(
@@ -882,6 +987,11 @@ def run_phase6(log: bool = True) -> dict[str, dict[str, dict[str, dict[str, Any]
                 log_in_distribution=True,
             ),
         }
+
+    if log:
+        # Outside the sealed block and after every condition has run: the sidecar is a record of
+        # the whole phase, not of one condition.
+        print(f"\nconfusion matrices -> {write_confusion_matrices(results)}")
 
     _print_headline(results[RUN_ID])
     _print_ablation_contrast(
@@ -1030,7 +1140,11 @@ def main(argv: list[str] | None = None) -> int:
     ) - len(_PHASE4_MODELS)  # the baselines' in-distribution halves stay Phase 4's -- subtracting a
     # flat len(_PHASE4_MODELS) is correct only while EXACTLY ONE condition passes
     # log_in_distribution=False. Add a second such condition and this undercounts.
-    print(f"\nlogged {rows} rows across {len(results)} run_ids -> {METRICS_CSV}")
+    print(
+        f"\nlogged {rows} rows across {len(results)} run_ids -> {METRICS_CSV}\n"
+        f"confusion matrices for all {len(results)} conditions -> {CONFUSION_JSON} "
+        "(read by Phase 9's confusion figure; the frozen 14-column header has no room for them)"
+    )
     return 0
 
 

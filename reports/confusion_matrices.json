@@ -1,0 +1,567 @@
+{
+  "cell_order": [
+    [
+      "tn",
+      "fp"
+    ],
+    [
+      "fn",
+      "tp"
+    ]
+  ],
+  "conditions": {
+    "phase6-crossera": {
+      "decision_tree": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              12217,
+              37783
+            ],
+            [
+              92765,
+              68278
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              31689,
+              5311
+            ],
+            [
+              3057,
+              42275
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "dummy": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              0,
+              50000
+            ],
+            [
+              0,
+              161043
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              0,
+              37000
+            ],
+            [
+              0,
+              45332
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "random_forest": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              10584,
+              39416
+            ],
+            [
+              124969,
+              36074
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              31299,
+              5701
+            ],
+            [
+              2336,
+              42996
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "scratch_logreg": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              23324,
+              26676
+            ],
+            [
+              127500,
+              33543
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              24313,
+              12687
+            ],
+            [
+              7990,
+              37342
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "scratch_mlp": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              16274,
+              33726
+            ],
+            [
+              129058,
+              31985
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              31940,
+              5060
+            ],
+            [
+              4493,
+              40839
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "svm": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              23219,
+              26781
+            ],
+            [
+              136797,
+              24246
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              23542,
+              13458
+            ],
+            [
+              7083,
+              38249
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      }
+    },
+    "phase6-crossera-no_conn_state": {
+      "decision_tree": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              12483,
+              37517
+            ],
+            [
+              92724,
+              68319
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              31682,
+              5318
+            ],
+            [
+              3052,
+              42280
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "dummy": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              0,
+              50000
+            ],
+            [
+              0,
+              161043
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              0,
+              37000
+            ],
+            [
+              0,
+              45332
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "random_forest": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              8671,
+              41329
+            ],
+            [
+              126885,
+              34158
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              31311,
+              5689
+            ],
+            [
+              2362,
+              42970
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "scratch_logreg": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              18661,
+              31339
+            ],
+            [
+              146131,
+              14912
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              26612,
+              10388
+            ],
+            [
+              11130,
+              34202
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "scratch_mlp": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              32290,
+              17710
+            ],
+            [
+              128075,
+              32968
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              31786,
+              5214
+            ],
+            [
+              4707,
+              40625
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "svm": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              10703,
+              39297
+            ],
+            [
+              147146,
+              13897
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              27410,
+              9590
+            ],
+            [
+              11571,
+              33761
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      }
+    },
+    "phase6-crossera-no_proto": {
+      "decision_tree": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              12633,
+              37367
+            ],
+            [
+              89496,
+              71547
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              31397,
+              5603
+            ],
+            [
+              3030,
+              42302
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "dummy": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              0,
+              50000
+            ],
+            [
+              0,
+              161043
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              0,
+              37000
+            ],
+            [
+              0,
+              45332
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "random_forest": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              17428,
+              32572
+            ],
+            [
+              123841,
+              37202
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              31175,
+              5825
+            ],
+            [
+              2393,
+              42939
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "scratch_logreg": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              6414,
+              43586
+            ],
+            [
+              118649,
+              42394
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              23232,
+              13768
+            ],
+            [
+              8364,
+              36968
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "scratch_mlp": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              11839,
+              38161
+            ],
+            [
+              115546,
+              45497
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              32507,
+              4493
+            ],
+            [
+              5312,
+              40020
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      },
+      "svm": {
+        "cross_era": {
+          "confusion_matrix": [
+            [
+              13465,
+              36535
+            ],
+            [
+              126757,
+              34286
+            ]
+          ],
+          "n_test": 211043,
+          "positive_rate": 0.763081
+        },
+        "in_distribution": {
+          "confusion_matrix": [
+            [
+              22260,
+              14740
+            ],
+            [
+              7590,
+              37742
+            ]
+          ],
+          "n_test": 82332,
+          "positive_rate": 0.5506
+        }
+      }
+    }
+  },
+  "labels": [
+    0,
+    1
+  ],
+  "schema": "ids-crossera/confusion-matrices/1",
+  "seed": 42,
+  "written_by": "src.evaluate.run_phase6"
+}

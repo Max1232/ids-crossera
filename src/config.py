@@ -19,6 +19,13 @@ REPORTS: Path = PROJECT_ROOT / "reports"
 FIGURES: Path = REPORTS / "figures"
 METRICS_CSV: Path = REPORTS / "metrics.csv"
 
+# Phase 6's confusion-matrix sidecar, written by `evaluate.run_phase6()` and read by
+# `plots.plot_confusion_matrices()`. It exists because the 14-column `METRICS_HEADER` is frozen and
+# has no room for a 2x2 integer matrix, and because Phase 9 must not re-fit eighteen models (~3 min)
+# to redraw one figure. Committed for the same reason `metrics.csv` is: checking that a run
+# reproduced should be a `git diff`, and a re-run rewrites it byte-identically.
+CONFUSION_JSON: Path = REPORTS / "confusion_matrices.json"
+
 # Expected raw filenames (see data/README.md).
 UNSW_TRAIN_CSV: Path = DATA_RAW / "UNSW_NB15_training-set.csv"
 UNSW_TEST_CSV: Path = DATA_RAW / "UNSW_NB15_testing-set.csv"

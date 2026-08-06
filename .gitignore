@@ -4,8 +4,11 @@ data/processed/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
-# Generated figures (keep the directory)
-reports/figures/*
+# Generated figures — TRACKED as of 2026-08-06. They are regenerable (`python -m src.plots`),
+# but the raw CSVs they derive from are not in the repo, so a collaborator or grader who clones
+# cannot rebuild them without downloading the datasets first. The figures are also the graded
+# artifact (the rubric scores the Results plots directly), so they ship with the repo.
+# reports/figures/README.md is the captions + row-provenance sidecar, written by src.plots.
 !reports/figures/.gitkeep
 
 # Python
