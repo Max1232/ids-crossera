@@ -17,6 +17,10 @@ unchanged on the newer **TON_IoT Network** dataset ([~2019–2020](https://resea
 measure how little modern labeled data it takes to claw the performance back. The goal is two
 honest numbers: **how much the detector degrades**, and **how cheaply that can be corrected**.
 
+Neither dataset is ours. Both are the work of **Nour Moustafa and co-authors at UNSW Canberra at
+ADFA**, used here under their academic-research terms — see
+[Datasets, credit and license](#datasets-credit-and-license) for the citations those terms require.
+
 ## Research questions
 
 - **RQ1 — drift:** How much does a 2015-trained detector degrade on newer traffic?
@@ -258,6 +262,90 @@ stdlib random, and all splits; dependencies are pinned in `requirements.txt`.
 
 `run.sh` uses `./.venv/bin/python` when that venv exists, so a fresh clone needs no activation step;
 set `PYTHON=` to override it (`PYTHON=python3.12 ./run.sh`).
+
+## Datasets, credit and license
+
+Neither dataset is ours, and neither is redistributed here — `data/raw/` is git-ignored and every file
+is fetched from the authors' own project pages ([`data/README.md`](data/README.md) records exactly
+what was pulled). Both come out of **UNSW Canberra at ADFA**:
+
+| Dataset | Role here | Credit |
+| --- | --- | --- |
+| [**UNSW-NB15**](https://research.unsw.edu.au/projects/unsw-nb15-dataset) (2015) | source era — every model is trained on it | Nour Moustafa and Jill Slay |
+| [**TON_IoT Network**](https://research.unsw.edu.au/projects/toniot-datasets) (~2019–2020) | target era — the drift and the recovery are measured on it | Nour Moustafa, with the co-authors of the papers below |
+
+Both are granted **free for academic research purposes in perpetuity**; commercial use must be agreed
+with the authors, who assert copyright. The condition attached to that grant is **citation**, and in
+neither case is it a single reference: the UNSW-NB15 page requires the **five** papers below, and the
+TON_IoT page requires **all eight** of its own. Both lists are reproduced here in full, with
+bibliographic details verified against Crossref rather than transcribed from a secondary source.
+
+The report cannot carry all thirteen — its 6-page limit includes references — so it cites the
+load-bearing subset inline, at minimum UNSW-NB15's dataset paper and evaluation paper (items 1 and 2
+below, the two the license names), and points here for the rest. The presentation owes the same
+credit on a slide.
+
+### UNSW-NB15 — the five citations its license requires
+
+1. N. Moustafa and J. Slay, "UNSW-NB15: a comprehensive data set for network intrusion detection
+   systems (UNSW-NB15 network data set)," *2015 Military Communications and Information Systems
+   Conference (MilCIS)*, 2015, pp. 1–6.
+   [doi:10.1109/MilCIS.2015.7348942](https://doi.org/10.1109/MilCIS.2015.7348942)
+2. N. Moustafa and J. Slay, "The evaluation of Network Anomaly Detection Systems: Statistical
+   analysis of the UNSW-NB15 data set and the comparison with the KDD99 data set," *Information
+   Security Journal: A Global Perspective*, vol. 25, no. 1–3, pp. 18–31, 2016.
+   [doi:10.1080/19393555.2015.1125974](https://doi.org/10.1080/19393555.2015.1125974)
+3. N. Moustafa, J. Slay and G. Creech, "Novel Geometric Area Analysis Technique for Anomaly Detection
+   Using Trapezoidal Area Estimation on Large-Scale Networks," *IEEE Transactions on Big Data*,
+   vol. 5, no. 4, pp. 481–494, 2019.
+   [doi:10.1109/TBDATA.2017.2715166](https://doi.org/10.1109/TBDATA.2017.2715166)
+4. N. Moustafa, G. Creech and J. Slay, "Big Data Analytics for Intrusion Detection System:
+   Statistical Decision-Making Using Finite Dirichlet Mixture Models," in *Data Analytics and
+   Decision Support for Cybersecurity*, Springer, Cham, 2017, pp. 127–156.
+   [doi:10.1007/978-3-319-59439-2_5](https://doi.org/10.1007/978-3-319-59439-2_5)
+5. M. Sarhan, S. Layeghy, N. Moustafa and M. Portmann, "NetFlow Datasets for Machine Learning-Based
+   Network Intrusion Detection Systems," in *Big Data Technologies and Applications (BDTA/WiCON
+   2020)*, LNICST vol. 371, Springer, Cham, 2021, pp. 117–135.
+   [doi:10.1007/978-3-030-72802-1_9](https://doi.org/10.1007/978-3-030-72802-1_9)
+
+### TON_IoT — the eight citations its license requires
+
+1. N. Moustafa, "A new distributed architecture for evaluating AI-based security systems at the edge:
+   Network TON_IoT datasets," *Sustainable Cities and Society*, vol. 72, art. 102994, 2021.
+   [doi:10.1016/j.scs.2021.102994](https://doi.org/10.1016/j.scs.2021.102994)
+2. T. M. Booij, I. Chiscop, E. Meeuwissen, N. Moustafa and F. T. H. den Hartog, "ToN_IoT: The Role of
+   Heterogeneity and the Need for Standardization of Features and Attack Types in IoT Network
+   Intrusion Data Sets," *IEEE Internet of Things Journal*, vol. 9, no. 1, pp. 485–496, 2022.
+   [doi:10.1109/JIOT.2021.3085194](https://doi.org/10.1109/JIOT.2021.3085194)
+3. A. Alsaedi, N. Moustafa, Z. Tari, A. Mahmood and A. Anwar, "TON_IoT Telemetry Dataset: A New
+   Generation Dataset of IoT and IIoT for Data-Driven Intrusion Detection Systems," *IEEE Access*,
+   vol. 8, pp. 165130–165150, 2020.
+   [doi:10.1109/ACCESS.2020.3022862](https://doi.org/10.1109/ACCESS.2020.3022862)
+4. N. Moustafa, M. Keshky, E. Debiez and H. Janicke, "Federated TON_IoT Windows Datasets for
+   Evaluating AI-Based Security Applications," *2020 IEEE 19th International Conference on Trust,
+   Security and Privacy in Computing and Communications (TrustCom)*, 2020, pp. 848–855.
+   [doi:10.1109/TrustCom50675.2020.00114](https://doi.org/10.1109/TrustCom50675.2020.00114)
+5. N. Moustafa, M. Ahmed and S. Ahmed, "Data Analytics-Enabled Intrusion Detection: Evaluations of
+   ToN_IoT Linux Datasets," *2020 IEEE 19th International Conference on Trust, Security and Privacy
+   in Computing and Communications (TrustCom)*, 2020, pp. 727–735.
+   [doi:10.1109/TrustCom50675.2020.00100](https://doi.org/10.1109/TrustCom50675.2020.00100)
+6. N. Moustafa, "New Generations of Internet of Things Datasets for Cybersecurity Applications based
+   Machine Learning: TON_IoT Datasets," *Proceedings of the eResearch Australasia Conference*,
+   Brisbane, Australia, 2019.
+7. N. Moustafa, "A systemic IoT-Fog-Cloud architecture for big-data analytics and cyber security
+   systems: a review of fog computing," arXiv:1906.01055, 2019.
+   [arXiv:1906.01055](https://arxiv.org/abs/1906.01055)
+8. J. Ashraf, M. Keshk, N. Moustafa, M. Abdel-Basset, H. Khurshid, A. D. Bakhshi and R. R. Mostafa,
+   "IoTBoT-IDS: A novel statistical learning-enabled botnet detection framework for protecting
+   networks of smart cities," *Sustainable Cities and Society*, vol. 72, art. 103041, 2021.
+   [doi:10.1016/j.scs.2021.103041](https://doi.org/10.1016/j.scs.2021.103041)
+
+Two of this project's findings are corrections to what the *documentation* around these datasets
+says, not to the authors' work: TON_IoT's published `train_test_network.csv` delivers 211,043 rows
+against a documented 461,043 (see [Limitations](#limitations)), and the flow CSVs carry no TTL field
+because Zeek's `conn.log` exports none. Both are recorded as measured facts in
+[`data/README.md`](data/README.md) so that neither reads as a complaint about the datasets, which are
+the reason this experiment is possible at all.
 
 ## Metrics log
 
@@ -512,6 +600,10 @@ attack types on the frozen test half — a different population over a different
 those eight have no UNSW-NB15 counterpart to compare against at all. Still owed: the report
 (Abstract, Intro + Related Work, Methods, Data & Experiments, Results, Conclusion) at ≤6 pages plus
 a title page; demo video recorded, uploaded privately, embedded in the deck; 65–70 word team
-contributions statement. Final check: the repo is accessible to the graders — and `run.sh`
+contributions statement. The References section is **license-bearing, not just courtesy** — both
+datasets are used under terms that require citation, so the report must cite UNSW-NB15's dataset and
+evaluation papers inline at a minimum and the deck must credit both datasets on a slide; the full
+required lists are in [Datasets, credit and license](#datasets-credit-and-license). Final check: the
+repo is accessible to the graders — and `run.sh`
 reproduces every figure from raw data, which it now does, since `python -m src.plots` is wired in as
 its last step.

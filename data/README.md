@@ -126,9 +126,22 @@ catastrophic.
 
 ## Citation requirements
 
-- **UNSW-NB15** — its license requires citing Moustafa & Slay: the 2015 MilCIS dataset paper and
-  the 2016 evaluation paper. The 2016 reference (`[^unsw-eval]`) **must appear inline** in the
-  report; pandoc silently drops uncited footnotes, so it will vanish without an error.
-- **TON_IoT** — free for academic research in perpetuity, but the project page asks that **all
-  eight** of its referenced papers be cited, which is broader than the single Alsaedi et al.
-  reference. Reconcile against the proposal's reference list, mindful of the 6-page cap.
+Both datasets are the work of **Nour Moustafa and co-authors at UNSW Canberra at ADFA**, and both are
+granted free for academic research purposes in perpetuity on the condition that they are cited —
+commercial use has to be agreed with the authors, who assert copyright. The citation is a license
+term, not a courtesy.
+
+**The full required reference lists live in the root
+[`README.md`](../README.md#datasets-credit-and-license)** — five papers for UNSW-NB15 and eight for
+TON_IoT, all thirteen verified against Crossref. Keep that the single copy; this file records only
+what the obligation is and where it bites:
+
+- **UNSW-NB15** — five required papers. The two the license names directly are Moustafa & Slay's
+  2015 MilCIS dataset paper and 2016 evaluation paper, and the 2016 reference (`[^unsw-eval]`)
+  **must appear inline** in the report: pandoc silently drops uncited footnotes, so it will vanish
+  without an error.
+- **TON_IoT** — eight required papers, which is far broader than the single Alsaedi et al. reference
+  a reader would guess at.
+- **The 6-page report cap includes references**, so all thirteen will not fit. Cite the load-bearing
+  subset inline and point at the repo for the complete list; reconcile against the proposal's
+  reference list. The presentation owes credit on a slide as well.
