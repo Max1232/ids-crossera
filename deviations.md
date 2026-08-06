@@ -2,10 +2,10 @@
 
 _Consolidated record of where the delivered project departs from the scope promised in
 `Proposal-Final.md`, plus the substantive methodological decisions a reader could reasonably
-question. Last updated: 2026-08-05 (content through Phase 7. §3.2 now reports the delivered
-`conn_state` ablation instead of promising one; five factual corrections landed alongside it — see
-the changelog at the foot of this file — and the Δ sign convention is now stated once and used
-throughout)._
+question. Last updated: 2026-08-06 (content through **Phase 9**. §§3.14–3.17 record the four Phase 9
+decisions a grader could question, and §1.3's coverage percentage now names its basis — the earlier
+figure was measured on a different UNSW frame than the figure it describes. See the changelog at the
+foot of this file.)_
 
 **Δ convention, everywhere in this file:** `Δ = in_distribution − cross_era`, i.e. **what the model
 lost**. Positive = degraded, negative = improved. This is `evaluate.metric_deltas()`, and it is what
@@ -68,9 +68,26 @@ the plan) because the zero case's **prevalence** inverts across eras (**1.52%** 
 ### 1.3 Per-attack-family analysis — restricted to three shared families
 **Promised:** per-family comparison. **Delivered:** only `DoS`↔`dos`, `Reconnaissance`↔`scanning`,
 and `Backdoor`↔`backdoor` align across the two label spaces. UNSW-NB15 has **no DDoS class**, so
-the earlier shared-family list was wrong. The three families cover **20.5% of UNSW _train-fold_
-attack rows** (24,501 of 119,341 — 19.8% of the full 257,673-row concatenated frame, which is
-train+test per §3.3) and **37.3%** of TON_IoT's (60,000 of 161,043); say that limit out loud.
+the earlier shared-family list was wrong. Say that limit out loud.
+
+**The coverage percentage depends on which UNSW frame you mean, and an earlier draft of this entry
+mislabelled its own basis** (it cited the *training partition*'s counts under a "train-fold" label —
+the two happen to agree to 0.03 points, so the error was invisible). All four bases, measured
+2026-08-06:
+
+| basis | shared-family attack rows | coverage |
+|---|---|---|
+| UNSW training partition (175,341 rows) | 24,501 / 119,341 | **20.53%** |
+| UNSW seeded train fold (140,272 rows) | 19,569 / 95,472 | 20.50% |
+| UNSW full concatenated frame (257,673 rows, train+test per §3.3) | 32,669 / 164,673 | 19.84% |
+| **UNSW-test (82,332 rows)** — what the per-family figure scores | 8,168 / 45,332 | **18.02%** |
+| **TON_IoT (211,043 rows)** | 60,000 / 161,043 | **37.26%** |
+
+**Quote 18.02% / 37.26% beside the cross-era per-family figure.** That figure's in-distribution
+regime is UNSW-**test**, not the train fold, and the caption computes both shares at render time from
+named `metrics.csv` rows (`n_test × positive_rate`) rather than transcribing them, so it cannot drift
+from this table. The three-family restriction applies **only** to the per-family breakdown — it never
+narrows the binary label (§3.10).
 **Report home:** Data & Experiments + Results (per-family figure caveat).
 
 ### 1.4 RQ3 live-malware probe — in scope as optional, cut-first
@@ -522,6 +539,105 @@ memorization) and against the dummy floor, which is F1 0.8656 at ROC-AUC
 0.5000 on this half — an F1 recovering toward 0.87 would mean nothing at all.
 **Report home:** Methods (adaptation design, one paragraph per mechanism) + Results (the curve).
 
+### 3.14 `RandomForestClassifier.predict_proba` is not bit-reproducible — and it only showed up in a committed artifact (Phase 9)
+**A real threat to the graded reproducibility claim, found by diffing rather than by reasoning.**
+`RandomForestClassifier(n_jobs=-1).predict_proba` accumulates per-tree probabilities in whatever
+order the worker threads finish, so **the same fitted forest returns scores differing by up to
+4.4e-16 between two calls in one process.**
+
+Nothing already committed could see it: every scalar in `reports/metrics.csv` is rounded to six
+decimals (§`METRIC_DECIMALS`) and the confusion matrices count hard predictions. **A ROC curve can**,
+because it resolves individual scores — the last-bit noise splits and re-merges tied thresholds, so
+the vertex list came out different on every run and `reports/roc_curves.json` showed a spurious
+`git diff` after each `./run.sh`. That is exactly the signal the committed-artifact convention exists
+to produce, and it would have been invisible had the curves not been persisted.
+
+**Fix:** scores are snapped to `ROC_SCORE_DECIMALS = 12` before the curve is built. `roc_auc` is
+still computed from the **raw** scores, so **no logged number moves** — the snap only ever changes
+which vertices the curve is drawn through. Measured across three separate processes, all six forest
+curves are identical at 13, 12 and 11 decimals and **still vary at 14**, so the snap clears the noise
+by a wide margin rather than merely exceeding it.
+
+**The snap is conditional, and that is a measurement rather than caution.** The decision tree's leaf
+fractions contain **110 pairs that are mathematically equal but land ~7e-18 apart** in float64;
+`roc_auc_score` already scored those as distinct thresholds, so the committed AUC reflects the split
+and merging them would move the curve's area by **2.24e-05** — twenty times past what the sidecar
+promises. The snap is therefore applied only where it demonstrably does not move the AUC past
+`ROC_CURVE_TOLERANCE = 1e-6`, and each stored curve records `scores_snapped` (**33 of 36** snapped).
+**Verified:** three consecutive Phase 6 runs → byte-identical `roc_curves.json`.
+**Report home:** none required — it is an engineering fix, not a scope deviation. Worth one sentence
+in Methods **only** if the report claims bit-level reproducibility, which it should, since `./run.sh`
+now does reproduce all 11 artifacts byte-identically.
+
+### 3.15 ROC curves are stored as thinned integer counts, area-preservingly (Phase 9)
+The 36 raw curves come to **432,667 vertices** — several MB of committed JSON for figures a few
+hundred pixels wide. Two decisions keep the sidecar small without moving the number it illustrates.
+
+**Counts, not rates.** A vertex is the integer `(false positives, true positives)` pair with the two
+class sizes recorded once per curve, so `fpr = fp/n_neg` and `tpr = tp/n_pos` reconstruct sklearn's
+output exactly and no rounding error is introduced on top of the thinning.
+
+**Area-preserving simplification**, budget 512 vertices/curve → **13,838 stored (3.20%)**. The
+objective matters, and three schemes were measured on the real curves at a comparable budget:
+
+| scheme | worst \|Δ AUC\| |
+|---|---|
+| uniform spacing along the curve | 6.5e-05 |
+| Douglas–Peucker (perpendicular distance) | 5.8e-06 |
+| **sign-aware area greedy (`simplify_roc`)** | **1.5e-07** |
+
+Perpendicular distance is the **wrong objective**: it bounds how far the drawn line strays, not how
+much area that costs, and on a curve that is concave (or, cross-era, convex) throughout, every
+residual carries the same sign and they accumulate. `simplify_roc` drops the vertex whose *signed*
+trapezoid change is smallest, preferring the sign that pulls the running total back toward zero, so
+they cancel. `roc_points()` recomputes the area over the kept vertices and **refuses to write** past
+`ROC_CURVE_TOLERANCE = 1e-6`. Worst observed across all 36 stored curves: **5.03e-07**, itself an
+upper bound since it also carries the sidecar's own 6-dp rounding. Each figure annotates the
+**committed** `metrics.csv` scalar, and all 12 rendered curves agree with it at **exactly 0.0e+00**.
+**Report home:** none — presentation detail. Relevant only if a reader asks whether the plotted curve
+is the one behind the printed AUC; it provably is.
+
+### 3.16 Three sidecar artifacts, because `METRICS_HEADER` is frozen (Phase 9)
+`reports/metrics.csv`'s 14 columns are frozen and its key is `(run_id, model, regime)`. None of a
+2×2 integer matrix, a ROC vertex list, or a per-family breakdown is a scalar metric, and the last has
+a dimension the key cannot express at all. Widening the header for a figure's sake is precisely what
+its own comment forbids. **Delivered:** three files beside the log —
+`reports/confusion_matrices.json`, `reports/roc_curves.json`, and `reports/per_family_metrics.csv`
+(its own frozen 18-column header, upsert-keyed on `(run_id, model, regime, family_set, family)`).
+
+Each is written by the phase that already computed the quantity, **gated on the same `log` flag** as
+the metrics upserts, sorted with floats rounded to `METRIC_DECIMALS`, and therefore byte-identical
+across re-runs — the same contract `log_metrics` gives `metrics.csv`. A missing file raises naming
+the command that produces it; nothing downstream recomputes, because that would mean re-fitting
+eighteen models to redraw one figure.
+
+`family_set` is load-bearing rather than decorative: `dos`, `scanning` and `backdoor` exist in
+**both** the shared and the native vocabularies over different populations, and without that field
+they would silently overwrite each other. Every family is scored **one-vs-normal** — an attack family
+is all-positive, so an F1 over its own rows alone is a relabelling of recall — and each subset
+carries its own `n_family`/`n_normal`/`positive_rate`.
+**`reports/metrics.csv` was not modified by any of this:** md5
+`116def31c6bca1bb788d4a86f9cc976e` before and after every Phase 9 pass.
+**Report home:** none — repo mechanics. Named in Methods only if the report points a reader at the
+committed artifacts.
+
+### 3.17 `family_native` added to the harmonized parquets (Phase 9)
+`COMMON_COLUMNS` gained a second family column, so both parquets went **14 → 15 columns** (UNSW
+257,673 × 15, TON_IoT 211,043 × 15). The existing `family` is the **shared** map: every level without
+a counterpart in the other era becomes NA, which is right for the cross-era comparison and useless
+for a per-era one — **101,043 of TON_IoT's 211,043 rows are NA there**, including all 20,000 each of
+`ddos`, `injection`, `password`, `ransomware` and `xss`. `family_native` is each dataset's own
+delivered level, lower-cased and stripped and nothing else, so Phase 7's recovery breakdown over
+TON_IoT's own eight 20,000-row types is expressible at all.
+
+**No model sees it.** It is a label column; `Preprocessor` builds its matrix from an explicit
+allowlist (`NUMERIC_FEATURES` 7 + `CATEGORICAL_FEATURES` 3 → d=22) and `_required_columns()` never
+names it. Verified after the change: the fitted feature schema is unchanged at 22 columns with zero
+family-derived names, and all 73 `metrics.csv` rows reproduced byte-identically from rebuilt
+parquets. The two columns disagree by design where a shared name won: UNSW `Reconnaissance` is
+`scanning` in `family` (TON_IoT's spelling, so the eras join) and `reconnaissance` in `family_native`.
+**Report home:** Methods (feature alignment) — one clause, if the per-family figures are discussed.
+
 ---
 
 ## 4. Open items against rubric claims
@@ -557,6 +673,27 @@ about. Recorded here so the same claims are not "restored" later from an older d
 | 3.10 | TON `label = 1` covers "only `backdoor`/`ddos`/`dos`/`injection`/`mitm`" (81,043 rows) | **all nine** attack `type` levels, 161,043 rows | measured on `Train_Test_Network.csv`; the three-family limit applies only to the per-family breakdown |
 | 3.10 | "the **stratified/prior** Dummy" | "the majority-class (**`most_frequent`**) Dummy" | `baselines.make_dummy`; §3.8 already said this correctly |
 | 1.3, 3.10 | percentages quoted with no denominator, and on *different* bases between sections | bases now labelled — §1.3 is the UNSW **train fold**, §3.10 is **UNSW-test** | both were arithmetically right and mutually inconsistent in presentation |
+
+## 6. Corrections log — 2026-08-06 (Phase 9)
+
+| § | Was | Now | Basis |
+|---|---|---|---|
+| 1.3 | "**20.5%** of UNSW _train-fold_ attack rows (24,501 of 119,341)" — the count is the training **partition**'s, not the seeded train fold's, and neither is the frame the per-family figure scores | all four bases tabled; **18.02%** (UNSW-**test**) named as the number to quote beside the figure | measured 2026-08-06; the figure's in-distribution regime is UNSW-test, n=82,332 |
+| new §3.14 | — | `RandomForestClassifier.predict_proba` is not bit-reproducible; conditional score snap | three-process measurement; `roc_curves.json` diffed on every run before the fix |
+| new §3.15 | — | ROC curves stored as area-preservingly thinned integer counts | three simplification schemes measured; worst stored drift 5.03e-07 |
+| new §3.16 | — | three sidecar artifacts, and why they are not columns | `METRICS_HEADER` is frozen and its key has no family dimension |
+| new §3.17 | — | `family_native` in `COMMON_COLUMNS`; parquets 14 → 15 columns | no model sees it — `Preprocessor` builds from an allowlist, d=22 unchanged |
+
+**Also checked this pass:** the `SHARED_FAMILIES` `"Backdoors"`/`"Backdoor"` bug CLAUDE.md warned
+about **is not present** — `schema_map.py` carries the singular key with a comment against
+"restoring" the plural, and it fires on 2,329 UNSW rows / 20,000 TON_IoT rows. `plots.py` now
+*derives* the expected family set from `SHARED_FAMILIES`, so a fourth family (or a vanished third)
+raises rather than drawing silently.
+
+**Finding worth the report, not a deviation:** cross-era, **14 of 15 (family, model) pairs** among
+the five real models fall below chance. The one exception is `decision_tree` on `backdoor`
+(AUC 0.6717); it is also near-chance on `dos` (0.4999). §3.10's inversion is present in all three
+shared families and is not one family's artifact.
 
 **Checked and deliberately NOT changed.** §3.4's "50,872 `src_bytes` rows (24.1%)" was queried as
 contradicting §3.1's 8.10% zero-rate. It does not: the two measure different quantities. The seeded

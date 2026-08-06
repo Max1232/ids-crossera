@@ -9,19 +9,23 @@ Every figure needs clear labels, legends, and captions (graded). Produces:
 
 **Every number rendered here is read from a committed artifact of the phase that measured it.**
 Nothing in this module fits, transforms, or re-derives anything, so a figure can never disagree
-with the table it illustrates. There are exactly two such artifacts:
+with the table it illustrates. There are exactly three such artifacts:
 
 * ``reports/metrics.csv`` -- the run log, keyed ``(run_id, model, regime)``; the source for every
   scalar metric on every figure;
 * ``reports/confusion_matrices.json`` -- the 2x2 count matrices, which the log's frozen 14-column
   header has no room for. Written by :func:`evaluate.run_phase6` from the matrices it already
-  computed (see :func:`evaluate.write_confusion_matrices`).
+  computed (see :func:`evaluate.write_confusion_matrices`);
+* ``reports/roc_curves.json`` -- the ROC vertices behind the logged ``roc_auc`` scalar, likewise not
+  a scalar and likewise written by :func:`evaluate.run_phase6` (see
+  :func:`evaluate.write_roc_curves`).
 
 Three consequences worth knowing before editing:
 
-* both files are opened **read-only** -- this module must never call :func:`evaluate.log_metrics`
-  or :func:`evaluate.write_confusion_matrices`;
-* a figure that needs a quantity neither artifact carries (ROC curve vectors, per-family F1) needs
+* all three files are opened **read-only** -- this module must never call
+  :func:`evaluate.log_metrics`, :func:`evaluate.write_confusion_matrices` or
+  :func:`evaluate.write_roc_curves`;
+* a figure that needs a quantity no artifact carries (per-family F1) needs
   a new data path in the phase that computes it, not a computation smuggled in here -- and that
   path is a *persisted artifact*, not a call back into the phase: ``python -m src.plots`` must stay
   a seconds-long command that re-renders figures, and ``./run.sh`` must not run any phase twice;
@@ -50,17 +54,36 @@ matplotlib.use("Agg")  # headless: run.sh has no display, and figures are files 
 import matplotlib.pyplot as plt  # noqa: E402 - must follow the backend selection above
 import pandas as pd  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap  # noqa: E402
-from matplotlib.patches import Rectangle  # noqa: E402
+from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Rectangle  # noqa: E402
 
-from .config import CONFUSION_JSON, FIGURES, METRICS_CSV, set_seeds  # noqa: E402
+from .config import (  # noqa: E402
+    CONFUSION_JSON,
+    FIGURES,
+    METRICS_CSV,
+    PER_FAMILY_CSV,
+    RANDOM_SEED,
+    ROC_JSON,
+    set_seeds,
+)
 from .evaluate import (  # noqa: E402
+    EXPECTED_ROWS,
+    METRIC_DECIMALS,
     METRICS_HEADER,
     METRICS_KEY,
+    NATIVE_FAMILY_SET,
+    NORMAL_FAMILY,
+    PER_FAMILY_HEADER,
+    PER_FAMILY_KEY,
     PHASE4_AGREEMENT_TOLERANCE,
     POSITIVE_LABEL,
+    ROC_CURVE_TOLERANCE,
+    SHARED_FAMILY_SET,
     read_confusion_matrices,
     read_metrics,
+    read_per_family_metrics,
+    read_roc_curves,
 )
+from .schema_map import COMMON_COLUMNS, FEATURE_MAP, SHARED_FAMILIES  # noqa: E402
 
 # =========================================================================================
 # Shared plotting foundation — style, loading, saving. Passes 2-5 build their figures on this.
@@ -240,6 +263,67 @@ def load_metrics(path: Any = METRICS_CSV) -> pd.DataFrame:
     return frame
 
 
+#: Per-family columns coerced to float / int on load. The rest stay strings.
+_FAMILY_FLOAT_COLUMNS: tuple[str, ...] = (
+    "positive_rate", "precision", "recall", "f1", "roc_auc",
+    "accuracy", "balanced_accuracy", "macro_f1",
+)
+_FAMILY_INT_COLUMNS: tuple[str, ...] = ("seed", "n_family", "n_normal", "n_test")
+
+
+def load_per_family(path: Any = PER_FAMILY_CSV) -> pd.DataFrame:
+    """Read ``reports/per_family_metrics.csv`` into a typed DataFrame. **Read-only — never writes.**
+
+    The same argument as :func:`load_metrics`, applied to the second committed table: built on
+    :func:`evaluate.read_per_family_metrics` so the frozen-header refusal and the
+    ``(run_id, model, regime, family_set, family)`` key live in exactly one place, with numeric
+    coercion added on top.
+    """
+    frame = pd.DataFrame(
+        list(read_per_family_metrics(path).values()), columns=list(PER_FAMILY_HEADER)
+    )
+    for column in _FAMILY_FLOAT_COLUMNS:
+        frame[column] = frame[column].astype(float)
+    for column in _FAMILY_INT_COLUMNS:
+        frame[column] = frame[column].astype(int)
+    return frame
+
+
+def as_per_family_frame(results: Any) -> pd.DataFrame:
+    """Coerce whatever a caller passed as the per-family ``results`` into the loaded DataFrame.
+
+    The three spellings :func:`as_metrics_frame` accepts, for the same reasons.
+    """
+    if isinstance(results, pd.DataFrame):
+        return results
+    if results is None:
+        return load_per_family()
+    return load_per_family(results)
+
+
+def select_family_row(
+    frame: pd.DataFrame, run_id: str, model: str, regime: str, family_set: str, family: str
+) -> pd.Series:
+    """The single per-family row for one :data:`evaluate.PER_FAMILY_KEY`, or raise.
+
+    :func:`select_row`'s counterpart on the wider key, and it exists for the same reason: a missing
+    key would otherwise be a silently absent bar and a duplicate would mean the upsert invariant in
+    :func:`evaluate.write_per_family_metrics` had broken. ``family_set`` is part of the key, not
+    decoration — ``dos``, ``scanning`` and ``backdoor`` exist in *both* vocabularies over different
+    row populations.
+    """
+    match = frame[
+        (frame["run_id"] == run_id) & (frame["model"] == model) & (frame["regime"] == regime)
+        & (frame["family_set"] == family_set) & (frame["family"] == family)
+    ]
+    if len(match) != 1:
+        raise KeyError(
+            f"expected exactly one {PER_FAMILY_KEY} row for ({run_id!r}, {model!r}, {regime!r}, "
+            f"{family_set!r}, {family!r}) in the per-family log, found {len(match)}"
+        )
+    return match.iloc[0]
+
+
 def as_metrics_frame(metrics: Any) -> pd.DataFrame:
     """Coerce whatever a caller passed as ``metrics`` into the loaded DataFrame.
 
@@ -275,8 +359,17 @@ def select_row(frame: pd.DataFrame, run_id: str, model: str, regime: str) -> pd.
 
 # --- Saving + the caption sidecar --------------------------------------------------------------
 
-#: ``(figure element, (run_id, model, regime))`` -- the provenance of one mark on one figure.
-SourceRow = tuple[str, tuple[str, str, str]]
+#: ``(figure element, key)`` -- the provenance of one mark on one figure. ``key`` is the
+#: ``(run_id, model, regime)`` of a ``reports/metrics.csv`` row, or the wider
+#: ``(run_id, model, regime, family_set, family)`` of a ``reports/per_family_metrics.csv`` one; the
+#: sidecar renders whichever width an entry uses (see :func:`_write_figure_index`).
+SourceRow = tuple[str, tuple[str, ...]]
+
+#: Column headings for the two provenance key widths, indexed by ``len(key)``.
+_SOURCE_COLUMNS: dict[int, tuple[str, ...]] = {
+    len(METRICS_KEY): METRICS_KEY,
+    len(PER_FAMILY_KEY): PER_FAMILY_KEY,
+}
 
 #: Figures written by the current process, in generation order. :func:`save_figure` appends here and
 #: rewrites the sidecar index from it, so the index is a deterministic function of the run: calling
@@ -343,11 +436,17 @@ def _write_figure_index(out: Any = FIGURES) -> Path:
         "`reports/metrics.csv` every mark was drawn from — or, for the confusion matrices, checked",
         "against — keyed on `(run_id, model, regime)`.",
         "",
-        f"Source log: `reports/metrics.csv` (MD5 `{_metrics_fingerprint()}`) — every scalar. The 2x2",
-        "confusion counts, which that file's frozen 14-column header has no room for, come from",
-        f"`reports/confusion_matrices.json` (MD5 `{_metrics_fingerprint(CONFUSION_JSON)}`), written by",
-        "`evaluate.run_phase6()`. This module reads both and writes neither; where they overlap they",
-        "are cross-checked against each other before anything is drawn.",
+        f"Source log: `reports/metrics.csv` (MD5 `{_metrics_fingerprint()}`) — every scalar. Two",
+        "quantities that file's frozen 14-column header has no room for come from their own sidecars,",
+        "both written by `evaluate.run_phase6()`: the 2x2 confusion counts from",
+        f"`reports/confusion_matrices.json` (MD5 `{_metrics_fingerprint(CONFUSION_JSON)}`) and the ROC",
+        f"vertices from `reports/roc_curves.json` (MD5 `{_metrics_fingerprint(ROC_JSON)}`).",
+        "The per-attack-family figures read a fourth committed table,",
+        f"`reports/per_family_metrics.csv` (MD5 `{_metrics_fingerprint(PER_FAMILY_CSV)}`), whose own",
+        "frozen header is keyed on `(run_id, model, regime, family_set, family)` — the metrics log's",
+        "key has no family dimension, so a per-family row would collide with the aggregate row it",
+        "decomposes. This module reads all four and writes none; where they overlap they are",
+        "cross-checked against each other before anything is drawn.",
         "",
         "**Δ sign convention throughout: `Δ = in_distribution − cross_era`, i.e. what the model",
         "*lost* — positive means degraded.** This is `evaluate.metric_deltas()` and what `./run.sh`",
@@ -355,16 +454,26 @@ def _write_figure_index(out: Any = FIGURES) -> Path:
         "",
     ]
     for number, entry in enumerate(_FIGURE_INDEX, start=1):
+        # One table per figure, at whichever key width that figure's sources use. A figure drawn
+        # from reports/per_family_metrics.csv is keyed on five fields rather than three, and
+        # flattening those into the three-column table would drop the family the row is *about*.
+        widths = {len(key) for _element, key in entry["sources"]}
+        if len(widths) != 1 or widths.isdisjoint(_SOURCE_COLUMNS):
+            raise ValueError(
+                f"{entry['name']} mixes provenance key widths {sorted(widths)}; a figure's sources "
+                f"must all be one of {sorted(_SOURCE_COLUMNS)} fields wide"
+            )
+        columns = _SOURCE_COLUMNS[widths.pop()]
         lines += [
             f"## Figure {number} — `{entry['name']}`",
             "",
             entry["caption"],
             "",
-            "| figure element | run_id | model | regime |",
-            "|---|---|---|---|",
+            "| figure element | " + " | ".join(columns) + " |",
+            "|---|" + "---|" * len(columns),
         ]
-        for element, (run_id, model, regime) in entry["sources"]:
-            lines.append(f"| {element} | `{run_id}` | `{model}` | `{regime}` |")
+        for element, key in entry["sources"]:
+            lines.append(f"| {element} | " + " | ".join(f"`{field}`" for field in key) + " |")
         lines.append("")
 
     out.mkdir(parents=True, exist_ok=True)
@@ -1300,12 +1409,1354 @@ def plot_confusion_matrices(results: Any, out: Any = FIGURES) -> Path:
     return save_figure(fig, "confusion_matrices", caption, sources, out=out)
 
 
-def plot_roc_curves(results: Any, out=FIGURES) -> None:
-    raise NotImplementedError("Phase 9: ROC curves")
+# =========================================================================================
+# Figure 4 — RQ1 ROC curves
+# =========================================================================================
+
+#: The Phase 6 condition this figure renders, and the only one it may. Same constant and same
+#: argument as :data:`CONFUSION_CONDITION`: the sidecar carries all three conditions, both ablations
+#: are matched d=18 experiments comparable to this one and to nothing else, and an ablated curve
+#: drawn here would read as the headline.
+ROC_CONDITION: str = CROSS_ERA_RUN_ID
+
+#: Slack allowed between the trapezoidal area of the *drawn* (simplified) curve and the ``roc_auc``
+#: committed to ``reports/metrics.csv``. Two independent terms, and neither is a fudge factor:
+#:
+#: * :data:`evaluate.ROC_CURVE_TOLERANCE` -- the bound ``evaluate.roc_points`` already enforced on
+#:   the simplification before it wrote the curve down;
+#: * half a unit in the log's last place -- ``metrics.csv`` stores six decimals, so the committed
+#:   scalar is itself a rounding of the exact area.
+#:
+#: Measured worst case across the twelve curves is far inside this; see the figure's caption.
+ROC_DRAWN_TOLERANCE: float = ROC_CURVE_TOLERANCE + 0.5 * 10 ** -METRIC_DECIMALS
+
+#: Markers per curve. The curves carry hundreds of vertices, so a marker at every one would be a
+#: solid band; six evenly spaced along the drawn polyline give the shape-based identity the palette
+#: note above makes mandatory without obscuring the line.
+_ROC_MARKERS_PER_CURVE: int = 6
 
 
-def plot_per_family_f1(results: Any, out=FIGURES) -> None:
-    raise NotImplementedError("Phase 9: per-family F1")
+def as_roc_curves(curves: Any) -> dict[str, dict[str, dict[str, Any]]]:
+    """Coerce whatever a caller passed as ``curves`` into ``{run_id: {model: {regime: ...}}}``.
+
+    The three spellings :func:`as_confusion_results` accepts, for the same reasons -- except that a
+    dict handed straight from :func:`evaluate.run_phase6` holds the raw ``roc_curve`` sub-dict under
+    each ``(model, regime)`` rather than the sidecar's flattened entry, so it is unwrapped here.
+    """
+    if isinstance(curves, dict):
+        return {
+            run_id: {
+                model: {regime: scores["roc_curve"] for regime, scores in regimes.items()}
+                for model, regimes in condition.items()
+            }
+            for run_id, condition in curves.items()
+        }
+    if curves is None:
+        return read_roc_curves()
+    return read_roc_curves(curves)
+
+
+def _roc_table(curves: Any, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """One record per (model, regime) curve: the rates to draw, and the log row they agree with.
+
+    **Every curve is cross-checked against ``reports/metrics.csv`` before it is drawn**, three ways,
+    because this figure prints an AUC next to each line and a printed number that disagrees with the
+    committed one is the single failure a persisted artifact makes possible:
+
+    * the class sizes the curve was built over must sum to the logged ``n_test`` and give the logged
+      ``positive_rate``;
+    * the sidecar's own ``roc_auc`` must equal the committed one;
+    * the **drawn** polyline's trapezoidal area, recomputed here from the stored integer counts,
+      must equal it too, within :data:`ROC_DRAWN_TOLERANCE`. That is the check that makes
+      simplifying the curve safe: it is verified against the log at render time, not merely asserted
+      at write time.
+
+    Tolerances split exactly as :func:`_confusion_table`'s do, and for the same reason: the four
+    baselines' in-distribution rows belong to ``phase4-baselines`` and are re-derived here from
+    Phase 6's re-fit of the same locked factory, so they agree to
+    :data:`evaluate.PHASE4_AGREEMENT_TOLERANCE` rather than to the bit.
+    """
+    conditions = as_roc_curves(curves)
+    if ROC_CONDITION in ABLATION_RUN_IDS:  # pragma: no cover - a constant, asserted anyway
+        raise RuntimeError(
+            f"{ROC_CONDITION} is an ablation run_id. The ROC figure is the RQ1 headline and must "
+            "render the full d=22 condition only."
+        )
+    if ROC_CONDITION not in conditions:
+        raise KeyError(
+            f"the ROC sidecar holds conditions {sorted(conditions)} but not {ROC_CONDITION!r}. "
+            "Re-run `python -m src.evaluate --regimes`."
+        )
+    condition = conditions[ROC_CONDITION]
+
+    records: list[dict[str, Any]] = []
+    for model in MODEL_ORDER:
+        if model not in condition:
+            raise KeyError(
+                f"no ROC curve for {model!r} under {ROC_CONDITION!r}; the sidecar holds "
+                f"{sorted(condition)}. All six models are drawn or none are."
+            )
+        for regime in REGIME_ORDER:
+            curve = condition[model][regime]
+            n_negative, n_positive = int(curve["n_negative"]), int(curve["n_positive"])
+            fpr = [count / n_negative for count in curve["false_positives"]]
+            tpr = [count / n_positive for count in curve["true_positives"]]
+            drawn_auc = float(_trapezoid(fpr, tpr))
+
+            csv_run_id = CSV_RUN_ID_FOR(model, regime)
+            logged = select_row(frame, csv_run_id, model, regime)
+            logged_auc = float(logged["roc_auc"])
+            slack = (
+                PHASE4_AGREEMENT_TOLERANCE if csv_run_id != ROC_CONDITION else 0.0
+            )
+            checks = (
+                ("n_test", float(n_negative + n_positive), float(logged["n_test"]), 0.0),
+                ("positive_rate", n_positive / (n_negative + n_positive),
+                 float(logged["positive_rate"]), max(slack, 1e-6)),
+                ("roc_auc (sidecar scalar)", float(curve["roc_auc"]), logged_auc, slack),
+                ("roc_auc (area of the drawn curve)", drawn_auc, logged_auc,
+                 ROC_DRAWN_TOLERANCE + slack),
+            )
+            for what, measured, committed, tolerance in checks:
+                if abs(measured - committed) > tolerance:
+                    raise RuntimeError(
+                        f"the ROC curve stored for {model}/{regime} gives {what} "
+                        f"{measured:.9f}, but the committed ({csv_run_id}, {model}, {regime}) row "
+                        f"of reports/metrics.csv records {committed:.9f} (drift "
+                        f"{abs(measured - committed):.2e} > {tolerance:.1e}). The sidecar and the "
+                        "run log are not from the same run, or the curve was simplified past the "
+                        "AUC it illustrates; regenerate both with `python -m src.evaluate "
+                        "--regimes` before drawing anything from either."
+                    )
+
+            records.append({
+                "model": model,
+                "regime": regime,
+                "fpr": fpr,
+                "tpr": tpr,
+                "roc_auc": logged_auc,          # the COMMITTED scalar is what gets annotated
+                "drawn_auc": drawn_auc,
+                "auc_drift": abs(drawn_auc - logged_auc),
+                "n_vertices": int(curve["n_vertices"]),
+                "n_drawn": len(fpr),
+                "n_test": n_negative + n_positive,
+                "positive_rate": n_positive / (n_negative + n_positive),
+                "csv_run_id": csv_run_id,
+            })
+    return records
+
+
+def _trapezoid(x: Sequence[float], y: Sequence[float]) -> float:
+    """Trapezoidal area under ``y`` over ``x``. Spelled out so the AUC check owns its arithmetic."""
+    return sum(
+        (x[i + 1] - x[i]) * (y[i + 1] + y[i]) / 2.0 for i in range(len(x) - 1)
+    )
+
+
+def plot_roc_curves(results: Any, out: Any = FIGURES) -> Path:
+    """ROC curves for all six models in both regimes (RQ1, the curve behind Figure 1's bars).
+
+    **Two panels, one per regime**, on identical square axes so the pair can be compared by eye: (a)
+    in-distribution on UNSW-test, (b) zero-shot cross-era on TON_IoT. The point of the figure is
+    that the cross-era curves do not merely flatten onto the chance diagonal, they cross *under* it
+    -- so the region below the diagonal is tinted and labelled on both panels, and in (b) every real
+    model lies entirely inside it. That is the rank inversion of ``deviations.md`` §3.10 drawn as a
+    curve rather than as a number.
+
+    Each curve is annotated with its ROC-AUC **in the panel legend**, read from the committed
+    ``(run_id, model, regime)`` row of ``reports/metrics.csv`` rather than from the curve; the
+    curve's own area is checked against that row first (see :func:`_roc_table`). Legends sit in the
+    corner each panel leaves empty, which is itself the result: (a) fills the upper-left triangle
+    and (b) the lower-right one.
+
+    The majority-class dummy **is** drawn, as the degenerate case rather than as a competitor. A
+    constant predictor produces a single operating point, so ``roc_curve`` returns the two endpoints
+    and its ROC is the chance diagonal exactly, at AUC 0.5000 in both regimes; drawing it in neutral
+    ink over the chance line makes the reference line and the measured floor visibly the same object
+    instead of asking the reader to take that on trust, and it is the control that shows the
+    cross-era collapse is not the change in class balance.
+
+    ``results`` is :func:`evaluate.run_phase6`'s return value, ``None`` (read the committed
+    ``reports/roc_curves.json`` sidecar -- what :func:`main` passes) or a path to one.
+    """
+    apply_style()
+    frame = as_metrics_frame(None)
+    table = _roc_table(results, frame)
+    by_key = {(record["model"], record["regime"]): record for record in table}
+
+    # Square panels: a ROC axis with unequal scales misreads, because the chance diagonal stops
+    # being the 45-degree line the reader is looking for.
+    fig, axes = plt.subplots(1, 2, figsize=(PAGE_WIDTH_IN, 4.35))
+    fig.subplots_adjust(left=0.085, right=0.995, top=0.775, bottom=0.185, wspace=0.20)
+
+    for column, regime in enumerate(REGIME_ORDER):
+        ax = axes[column]
+        # The sub-chance region, tinted identically on both panels so the comparison is immediate:
+        # empty in (a), and in (b) it contains every real model's entire curve.
+        ax.fill_between([0.0, 1.0], [0.0, 1.0], [0.0, 0.0], color=GRID, alpha=0.45, zorder=0,
+                        linewidth=0)
+        ax.plot([0.0, 1.0], [0.0, 1.0], color=INK_MUTED, linewidth=1.0, linestyle=(0, (3, 2)),
+                zorder=2)
+        # Labelled once, on the panel where it has occupants. On (a) the same triangle is empty and
+        # is also exactly where that panel's legend has to sit, so a second copy would be covered.
+        if regime == "cross_era":
+            ax.text(
+                0.955, 0.055, "worse than chance\n(ranking inverted)", ha="right", va="bottom",
+                fontsize=6.3, color=INK_SECONDARY, linespacing=1.35, style="italic",
+            )
+
+        handles, labels = [], []
+        for model in MODEL_ORDER:
+            record = by_key[(model, regime)]
+            colour = MODEL_COLOURS[model]
+            step = max(1, (record["n_drawn"] - 1) // _ROC_MARKERS_PER_CURVE)
+            line, = ax.plot(
+                record["fpr"], record["tpr"], color=colour, linestyle=MODEL_DASHES[model],
+                marker=MODEL_MARKERS[model], markevery=step, markersize=4.0,
+                markeredgecolor="white", markeredgewidth=0.5,
+                linewidth=1.5 if model != "dummy" else 1.1, zorder=4 if model != "dummy" else 3,
+            )
+            handles.append(line)
+            suffix = "  (= chance)" if model == "dummy" else ""
+            labels.append(f"{MODEL_LABELS[model]} — {record['roc_auc']:.4f}{suffix}")
+
+        record = by_key[(MODEL_ORDER[0], regime)]
+        ax.set_xlim(-0.012, 1.012)
+        ax.set_ylim(-0.012, 1.012)
+        ax.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])
+        ax.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0])
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlabel("False positive rate  (1 − specificity)")
+        if column == 0:
+            ax.set_ylabel("True positive rate  (attack recall)")
+        ax.set_title(
+            f"({'ab'[column]}) {REGIME_LABELS[regime]}\nn={record['n_test']:,}, "
+            f"{record['positive_rate']:.2%} attack",
+            pad=6, fontsize=7.8, color=REGIME_COLOURS[regime],
+        )
+        ax.grid(zorder=1)
+        ax.set_axisbelow(True)
+        # The legend goes wherever the curves are not, which flips between the panels precisely
+        # because the curves do. Ordered by MODEL_ORDER (descending in-distribution AUC), so in (b)
+        # the legend deliberately does NOT re-rank: a reader can follow one model across both.
+        ax.legend(
+            handles, labels, loc="lower right" if column == 0 else "upper left",
+            fontsize=6.4, handlelength=2.4, borderpad=0.5, labelspacing=0.42,
+            handletextpad=0.6, framealpha=1.0, frameon=True, facecolor="white",
+            edgecolor="none", title="ROC-AUC (reports/metrics.csv)",
+            title_fontproperties={"size": 6.4, "weight": "bold"},
+        )
+
+    _subtitle(
+        fig,
+        "RQ1 as curves: cross-era the detector runs backwards, it does not flatten",
+        "The same six models and one fit per model as Figures 1 and 3. In (a) every curve is above "
+        "the chance diagonal;\nin (b) every real model's curve is entirely below it — the shaded "
+        "region — which is a rank inversion, not a decay.",
+    )
+
+    sources: list[SourceRow] = [
+        (
+            f"{MODEL_LABELS[record['model']]} — curve and legend AUC in panel "
+            f"({'ab'[REGIME_ORDER.index(record['regime'])]}); curve from "
+            f"run_phase6()/{ROC_CONDITION}, AUC read from",
+            (record["csv_run_id"], record["model"], record["regime"]),
+        )
+        for record in table
+    ]
+
+    # Every quantity below is computed from the drawn records, never transcribed.
+    cross = [r for r in table if r["regime"] == "cross_era" and r["model"] != "dummy"]
+    in_dist = [r for r in table if r["regime"] == "in_distribution" and r["model"] != "dummy"]
+    dummy = by_key[("dummy", "cross_era")]
+    worst_drift = max(r["auc_drift"] for r in table)
+    max_vertices = max(r["n_vertices"] for r in table)
+    max_drawn = max(r["n_drawn"] for r in table)
+    # "Below the diagonal" is measured on the drawn vertices, not asserted: the largest amount by
+    # which any cross-era vertex of any real model rises above tpr = fpr.
+    excursion = max(
+        max(tpr - fpr for fpr, tpr in zip(record["fpr"], record["tpr"])) for record in cross
+    )
+    worst_loss = max(
+        by_key[(model, "in_distribution")]["roc_auc"] - by_key[(model, "cross_era")]["roc_auc"]
+        for model in MODEL_ORDER
+    )
+    caption = (
+        f"**Figure 4. ROC curves in both regimes (RQ1).** "
+        f"The same single fit per model as Figures 1 and 3, evaluated in-distribution on the "
+        f"UNSW-NB15 test set (panel a; n={in_dist[0]['n_test']:,}; "
+        f"{in_dist[0]['positive_rate']:.2%} attack) and zero-shot cross-era on TON_IoT (panel b; "
+        f"n={cross[0]['n_test']:,}; {cross[0]['positive_rate']:.2%} attack), with no refitting of "
+        f"the model or the preprocessor. "
+        f"The dashed 45° line is chance and the shaded triangle beneath it is the sub-chance "
+        f"region. In (a) all five real models run above it, at ROC-AUC "
+        f"{min(r['roc_auc'] for r in in_dist):.4f}–{max(r['roc_auc'] for r in in_dist):.4f}; in (b) "
+        f"all five lie inside it, at {min(r['roc_auc'] for r in cross):.4f}–"
+        f"{max(r['roc_auc'] for r in cross):.4f}, and no drawn vertex of any of the five rises more "
+        f"than {excursion:.5f} above the diagonal. "
+        f"A curve below the diagonal is not a weak detector "
+        f"but an inverted one: the 2015-learned score ranks 2019–20 attacks below normal traffic, "
+        f"so the loss (Δ = in-distribution − cross-era, positive = degraded) of up to "
+        f"Δ {worst_loss:+.4f} is a rank inversion rather than a decay. "
+        f"The majority-class dummy is included as the degenerate case: a constant predictor has a "
+        f"single operating point, so its ROC *is* the chance diagonal, at exactly "
+        f"{dummy['roc_auc']:.4f} in both regimes — it is the control showing that the collapse in "
+        f"(b) is not the change in class balance, since a prevalence-driven artifact would move it "
+        f"too. "
+        f"Each legend entry's ROC-AUC is the committed value from the "
+        f"`(run_id, model, regime)` row of `reports/metrics.csv`, not a quantity re-derived here. "
+        f"Curves come from `evaluate.run_phase6()` under `run_id={ROC_CONDITION}` (the full d=22 "
+        f"feature set; both ablation conditions are excluded by construction) via "
+        f"`reports/roc_curves.json`, where each is stored as exact integer (false-positive, "
+        f"true-positive) vertex counts reduced from up to {max_vertices:,} vertices to at most "
+        f"{max_drawn:,} by an area-preserving simplification; the trapezoidal area of every drawn "
+        f"curve was re-checked against its own logged ROC-AUC before plotting and agrees to within "
+        f"{worst_drift:.1e}."
+    )
+    return save_figure(fig, "roc_curves", caption, sources, out=out)
+
+
+# =========================================================================================
+# Figures 5 and 6 — per-attack-family breakdowns
+# =========================================================================================
+#
+# TWO FIGURES, NOT ONE, AND THEY ARE NOT THE SAME EXPERIMENT. The distinction is the single easiest
+# thing to get wrong in this phase, so it is enforced by the `family_set` column of
+# `reports/per_family_metrics.csv` and asserted in both functions below:
+#
+#   Figure 5 (`plot_per_family_f1`)        CROSS-ERA, and therefore the THREE SHARED families only
+#                                          -- `dos`, `scanning`, `backdoor`. Rows under
+#                                          family_set="shared", two regimes, from Phase 6.
+#   Figure 6 (`plot_per_family_recovery`)  WITHIN-ERA recovery, over TON_IoT's OWN attack types
+#                                          (eight at ~20,000 rows plus a ninth at 1,043) on the
+#                                          frozen test half. Rows under family_set="native", one
+#                                          regime, from Phase 7.
+#
+# A join that mixed them would compare a 583-row UNSW family against a 20,000-row TON_IoT one, or
+# read a TON_IoT-only family (`ransomware`, `ddos`, ...) as a cross-era result. UNSW-NB15 has NO
+# DDoS class at all; four shared families is a bug, not a finding.
+#
+# EVERY NUMBER ON BOTH FIGURES IS A ONE-VS-NORMAL SCORE: the family's rows plus every normal row of
+# the same evaluation set. An attack family is all-positive by construction, so F1 over its rows
+# alone is a monotone function of recall and cannot be read against a majority-class floor; see
+# `evaluate.per_family_metrics`. The consequence a reader must carry is that each family's subset
+# has its own class balance -- UNSW-test `backdoor` is 583 rows against 37,000 normals (1.55%
+# attack) while TON_IoT `backdoor` is 20,000 against 50,000 (28.57%) -- so per-family F1 moves on
+# prevalence between the two regimes even harder than the aggregate F1 of Figure 1 does. That is
+# why ROC-AUC leads on Figure 5 and why the majority-class lines are drawn on its F1 panels.
+
+#: The Phase 6 condition Figure 5 renders, and the only one it may -- same constant and same
+#: argument as :data:`CONFUSION_CONDITION` and :data:`ROC_CONDITION`.
+PER_FAMILY_CONDITION: str = CROSS_ERA_RUN_ID
+
+#: The shared attack families, derived from ``schema_map.SHARED_FAMILIES`` rather than written down
+#: here. That is the guard against the two failures this project has already had: a fourth family
+#: appearing (UNSW-NB15 has no DDoS class, so ``ddos`` can never be shared), and a family silently
+#: vanishing (the delivered ``attack_cat`` value is ``Backdoor``, singular -- the plural spelling
+#: the upstream *documentation* uses matched zero rows and failed without a word). Deriving it means
+#: the figure cannot disagree with the map that built the parquets.
+EXPECTED_SHARED_FAMILIES: tuple[str, ...] = tuple(sorted(
+    {
+        family
+        for side in SHARED_FAMILIES.values()
+        for family in side.values()
+        if family is not None and family != NORMAL_FAMILY
+    }
+))
+
+
+def _span(values: Any, decimals: int = 4) -> str:
+    """``0.1234–0.5678``, collapsed to one number when the ends coincide at that precision.
+
+    A caption that prints "0.4444–0.4444" reads as a measurement error rather than as three
+    families that legitimately share a class balance.
+    """
+    low, high = f"{min(values):.{decimals}f}", f"{max(values):.{decimals}f}"
+    return low if low == high else f"{low}–{high}"
+
+
+def _family_title(family: str) -> str:
+    """``"scanning" -> "Reconnaissance ↔ scanning"`` -- both eras' delivered spellings.
+
+    The shared vocabulary borrows TON_IoT's spelling, so a reader who sees only ``scanning`` cannot
+    tell which UNSW class it was mapped from. Both keys are looked up in ``SHARED_FAMILIES`` rather
+    than transcribed, and a family that does not resolve to exactly one level per side raises --
+    that is the same silent-mismatch failure the singular/plural ``Backdoor`` bug was.
+    """
+    sides = []
+    for side in ("unsw", "toniot"):
+        levels = sorted(k for k, v in SHARED_FAMILIES[side].items() if v == family)
+        if len(levels) != 1:
+            raise KeyError(
+                f"shared family {family!r} maps from {len(levels)} {side} level(s) {levels}; "
+                "exactly one delivered level per side is what makes the pairing a pairing"
+            )
+        sides.append(levels[0])
+    return f"{sides[0]} ↔ {sides[1]}"
+
+
+def _cross_era_family_table(frame: pd.DataFrame) -> pd.DataFrame:
+    """One row per (family, model) carrying both regimes' halves, with the family set asserted.
+
+    Restricted to ``family_set == "shared"`` under :data:`PER_FAMILY_CONDITION`, and the resulting
+    family set is checked against :data:`EXPECTED_SHARED_FAMILIES` before anything is drawn.
+    """
+    shared = frame[
+        (frame["run_id"] == PER_FAMILY_CONDITION) & (frame["family_set"] == SHARED_FAMILY_SET)
+    ]
+    families = tuple(sorted(set(shared["family"])))
+    if families != EXPECTED_SHARED_FAMILIES:
+        raise RuntimeError(
+            f"the cross-era per-family figure resolved families {list(families)}, expected exactly "
+            f"{list(EXPECTED_SHARED_FAMILIES)} from schema_map.SHARED_FAMILIES. UNSW-NB15 has no "
+            "DDoS class and only three families align across the two eras; a fourth is a bug in "
+            "the family map, not a result."
+        )
+
+    records = []
+    for family in families:
+        for model in MODEL_ORDER:
+            halves = {
+                regime: select_family_row(
+                    frame, PER_FAMILY_CONDITION, model, regime, SHARED_FAMILY_SET, family
+                )
+                for regime in REGIME_ORDER
+            }
+            records.append({
+                "family": family,
+                "model": model,
+                **{
+                    f"{prefix}_{column}": halves[regime][column]
+                    for prefix, regime in (("in", "in_distribution"), ("cross", "cross_era"))
+                    for column in ("roc_auc", "f1", "n_family", "n_normal", "positive_rate")
+                },
+            })
+    table = pd.DataFrame.from_records(records)
+
+    # Every model must have been scored against the SAME subset per family and regime, or the bars
+    # within a panel are not comparable to each other.
+    for family in families:
+        block = table[table["family"] == family]
+        for column in ("in_n_family", "in_n_normal", "cross_n_family", "cross_n_normal"):
+            if block[column].nunique() != 1:
+                raise RuntimeError(
+                    f"{column} is not constant across models for family {family!r} "
+                    f"({sorted(set(block[column]))}); the six models were not scored on one subset."
+                )
+    return table
+
+
+def plot_per_family_f1(results: Any, out: Any = FIGURES) -> Path:
+    """Per-shared-family F1 and ROC-AUC, in-distribution vs cross-era (RQ1, Figure 1 decomposed).
+
+    **The three shared families only** — ``DoS ↔ dos``, ``Reconnaissance ↔ scanning``,
+    ``Backdoor ↔ backdoor``. Those are the only attack classes both label spaces contain (UNSW-NB15
+    ships no DDoS class at all), and they cover a minority of each era's attack rows, which the
+    caption states as a limit rather than implying. The recovery-side per-family breakdown is a
+    *different* figure over a *different* population — see :func:`plot_per_family_recovery`.
+
+    A 3x2 grid: one row per family, and within each row the same two panels as Figure 1 —
+    **ROC-AUC leads** and F1 follows with its majority-class lines drawn on. The per-family F1
+    panels need that caveat even more than Figure 1's does: each family is scored one-vs-normal, so
+    the subset's class balance is set by the family's own size, and UNSW-test ``backdoor`` (583 rows
+    against 37,000 normals) and TON_IoT ``backdoor`` (20,000 against 50,000) are 1.55% and 28.57%
+    attack respectively. A dummy predicting "attack" everywhere therefore scores a *higher* F1
+    cross-era on every family, on balance alone.
+
+    ``results`` is the DataFrame from :func:`load_per_family` (or ``None`` / a path to a per-family
+    CSV — what :func:`main` passes). Bars come from ``reports/per_family_metrics.csv``, written by
+    ``evaluate.run_phase6()`` under ``run_id=phase6-crossera``; both ablation conditions are excluded
+    by construction, since neither is scored per family at all.
+    """
+    apply_style()
+    table = _cross_era_family_table(as_per_family_frame(results))
+
+    # How narrow the three families are, computed rather than transcribed. The per-family artifact
+    # knows each family's size but not the era's total attack count, so the denominators come from
+    # the same `reports/metrics.csv` rows Figure 1's bars do -- n_test x positive_rate, which is
+    # exactly what those two columns are there to record.
+    metrics = as_metrics_frame(None)
+    coverage = {}
+    for prefix, run_id, regime in (
+        ("in", IN_DISTRIBUTION_RUN_ID["dummy"], "in_distribution"),
+        ("cross", CROSS_ERA_RUN_ID, "cross_era"),
+    ):
+        row = select_row(metrics, run_id, "dummy", regime)
+        n_attack = int(round(float(row["n_test"]) * float(row["positive_rate"])))
+        n_covered = int(table.groupby("family")[f"{prefix}_n_family"].first().sum())
+        coverage[prefix] = (n_covered, n_attack, n_covered / n_attack)
+
+    # Largest in-distribution family first: the reader meets the best-supported comparison at the
+    # top, and the ordering is derived from the data rather than chosen.
+    families = list(
+        table.groupby("family")["in_n_family"].first().sort_values(ascending=False).index
+    )
+
+    fig, axes = plt.subplots(len(families), 2, figsize=(PAGE_WIDTH_IN, 7.7), sharey=True)
+    fig.subplots_adjust(left=0.195, right=0.985, top=0.800, bottom=0.115, wspace=0.30, hspace=1.05)
+
+    positions = list(range(len(MODEL_ORDER)))
+    height = 0.36
+    gutter_x = 1.045
+    header_y = -1.05
+
+    for row, family in enumerate(families):
+        block = table[table["family"] == family].set_index("model").loc[list(MODEL_ORDER)]
+        dummy = block.loc["dummy"]
+        for column, (metric, xlabel) in enumerate(
+            (("roc_auc", "ROC-AUC"), ("f1", "F1 (attack class)"))
+        ):
+            ax = axes[row][column]
+            in_values = block[f"in_{metric}"].to_numpy()
+            cross_values = block[f"cross_{metric}"].to_numpy()
+            ax.barh(
+                [p - height / 2 for p in positions], in_values, height,
+                color=REGIME_COLOURS["in_distribution"], label=REGIME_LABELS["in_distribution"],
+                edgecolor="white", linewidth=0.8, zorder=3,
+            )
+            ax.barh(
+                [p + height / 2 for p in positions], cross_values, height,
+                color=REGIME_COLOURS["cross_era"], label=REGIME_LABELS["cross_era"],
+                edgecolor="white", linewidth=0.8, zorder=3,
+            )
+            # Δ = in − cross, in its own gutter: positive = what the model lost. Three decimals
+            # rather than Figure 1's four, because the gutter is half as wide at this panel size.
+            ax.text(gutter_x, header_y, "Δ", ha="left", va="center", fontsize=6.6,
+                    fontweight="bold", color=INK_PRIMARY)
+            for position, high, low in zip(positions, in_values, cross_values):
+                ax.text(gutter_x, position, f"{high - low:+.3f}", ha="left", va="center",
+                        fontsize=6.2, color=INK_PRIMARY)
+
+            if metric == "roc_auc":
+                chance = float(dummy["cross_roc_auc"])
+                ax.axvline(chance, color=INK_SECONDARY, linewidth=1.0, linestyle=(0, (3, 2)),
+                           zorder=4)
+                ax.text(chance - 0.03, header_y, f"chance {chance:.4f}", ha="right", va="center",
+                        fontsize=6.0, color=INK_SECONDARY)
+            else:
+                for key, colour, label_y in (
+                    ("in_f1", REGIME_COLOURS["in_distribution"], header_y - 0.32),
+                    ("cross_f1", REGIME_COLOURS["cross_era"], header_y + 0.30),
+                ):
+                    value = float(dummy[key])
+                    ax.axvline(value, color=colour, linewidth=1.0, linestyle=(0, (3, 2)), zorder=4)
+                    ax.text(value, label_y, f"{value:.4f}", ha="center", va="center", fontsize=6.0,
+                            color=colour)
+
+            ax.set_xlabel(xlabel, fontsize=7.6, labelpad=2)
+            ax.set_xlim(0.0, 1.34)
+            ax.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])
+            ax.set_yticks(positions)
+            ax.set_yticklabels([MODEL_LABELS[m] for m in MODEL_ORDER], fontsize=6.8)
+            ax.set_ylim(len(MODEL_ORDER) - 0.4, header_y - 0.56)  # inverted: best model on top
+            ax.grid(axis="x", zorder=0)
+            ax.set_axisbelow(True)
+            ax.spines["left"].set_visible(False)
+            ax.tick_params(axis="y", length=0)
+
+        # Row header, spanning both panels: the family and the two one-vs-normal subsets it was
+        # scored over. Positioned from the row's own axes so retuning the grid cannot orphan it,
+        # and broken over two lines because a single line of this length silently widens the whole
+        # figure -- `savefig.bbox = "tight"` sizes the PNG to its widest artist.
+        first = block.iloc[0]
+        y = axes[row][0].get_position().y1 + 0.052
+        fig.text(
+            0.030, y, f"({'abc'[row]}) {_family_title(family)}",
+            ha="left", va="bottom", fontsize=8.0, fontweight="bold", color=INK_PRIMARY,
+        )
+        fig.text(
+            0.030, y - 0.0165,
+            f"scored one-vs-normal   ·   UNSW-test: {int(first['in_n_family']):,} "
+            f"vs {int(first['in_n_normal']):,} normal "
+            f"({float(first['in_positive_rate']):.2%} attack)   ·   "
+            f"TON_IoT: {int(first['cross_n_family']):,} vs "
+            f"{int(first['cross_n_normal']):,} normal "
+            f"({float(first['cross_positive_rate']):.2%} attack)",
+            ha="left", va="bottom", fontsize=6.6, color=INK_SECONDARY,
+        )
+
+    handles, labels = axes[0][0].get_legend_handles_labels()
+    reference_handles = [
+        plt.Line2D([], [], color=INK_SECONDARY, linestyle=(0, (3, 2)),
+                   label="left panels: chance, ROC-AUC = 0.5000"),
+        plt.Line2D([], [], color=REGIME_COLOURS["in_distribution"], linestyle=(0, (3, 2)),
+                   label="right panels: majority-class F1 on the UNSW-test subset"),
+        plt.Line2D([], [], color=REGIME_COLOURS["cross_era"], linestyle=(0, (3, 2)),
+                   label="right panels: majority-class F1 on the TON_IoT subset"),
+    ]
+    fig.legend(
+        [*handles, *reference_handles],
+        [*labels, *(h.get_label() for h in reference_handles)],
+        loc="lower center", bbox_to_anchor=(0.5, 0.002), ncol=2, handlelength=1.9,
+        columnspacing=1.6, labelcolor=INK_PRIMARY,
+    )
+    _subtitle(
+        fig,
+        "RQ1 per attack family: the collapse is not one family's",
+        "The three families both eras label, each scored against its own era's benign traffic. "
+        "Δ = in-distribution − cross-era\n(positive = performance lost). Read the F1 panels against "
+        "the dashed majority-class lines: every subset's balance rises.",
+    )
+
+    sources: list[SourceRow] = []
+    for family in families:
+        for model in MODEL_ORDER:
+            for regime in REGIME_ORDER:
+                sources.append((
+                    f"{_family_title(family)} — {MODEL_LABELS[model]}, "
+                    f"{'in-distribution' if regime == 'in_distribution' else 'cross-era'} bars",
+                    (PER_FAMILY_CONDITION, model, regime, SHARED_FAMILY_SET, family),
+                ))
+
+    # Everything quoted below is computed from the plotted rows. `real` excludes the dummy, whose
+    # per-family ROC-AUC is 0.5000 in both regimes by construction.
+    real = table[table["model"] != "dummy"]
+    inverted = real[real["cross_roc_auc"] < 0.5]
+    sizes = ", ".join(
+        f"{_family_title(family)} "
+        f"({int(table[table['family'] == family]['in_n_family'].iloc[0]):,} UNSW-test / "
+        f"{int(table[table['family'] == family]['cross_n_family'].iloc[0]):,} TON_IoT rows)"
+        for family in families
+    )
+    caption = (
+        f"**Figure 5. The cross-era collapse, per shared attack family (RQ1).** "
+        f"Figure 1's aggregate result decomposed over the only three attack families both label "
+        f"spaces contain: {sizes}. UNSW-NB15 ships **no DDoS class**, and its `Exploits`, "
+        f"`Generic`, `Fuzzers`, `Analysis`, `Shellcode` and `Worms` classes have no TON_IoT "
+        f"counterpart, so the three families reach only "
+        f"**{coverage['in'][2]:.2%} of UNSW-test's {coverage['in'][1]:,} attack rows "
+        f"({coverage['in'][0]:,}) and {coverage['cross'][2]:.2%} of TON_IoT's "
+        f"{coverage['cross'][1]:,} ({coverage['cross'][0]:,})** — the binary headline of Figures 1, "
+        f"3 and 4 uses every row, and only this per-family view is restricted. "
+        f"Each family is scored **one-vs-normal**: the family's rows plus every normal row of the "
+        f"same evaluation set, because an attack family is all-positive by construction and F1 over "
+        f"its rows alone would be a relabelling of recall. "
+        f"Panels (a, c, e) lead with ROC-AUC: {len(inverted)} of the {len(real)} (family, model) "
+        f"pairs among the five real models fall *below* the 0.5000 chance line cross-era, ranging "
+        f"down to {real['cross_roc_auc'].min():.4f}, so the inversion of Figure 1 is present in "
+        f"every family rather than driven by one of them. "
+        f"Panels (b, d, f) must be read against the dashed majority-class lines, which move between "
+        f"the regimes far more than in Figure 1: one-vs-normal makes each subset's balance the "
+        f"family's own size, so the same dummy scores F1 "
+        f"{_span(table['in_f1'][table['model'] == 'dummy'])} in-distribution and "
+        f"{_span(table['cross_f1'][table['model'] == 'dummy'])} cross-era on prevalence alone. "
+        f"Δ = in-distribution − cross-era throughout, i.e. what the model *lost*: positive means "
+        f"degraded, and a negative per-family Δ F1 is that prevalence rise rather than an "
+        f"improvement. "
+        f"Rows come from `reports/per_family_metrics.csv` under "
+        f"`run_id={PER_FAMILY_CONDITION}`, `family_set=shared`; the two ablation conditions are not "
+        f"scored per family at all."
+    )
+    return save_figure(fig, "per_family_crossera", caption, sources, out=out)
+
+
+# =========================================================================================
+# Figure 6 — RQ2 per-family recovery
+# =========================================================================================
+
+#: The smallest family Figure 6 will draw. TON_IoT ships eight attack types at exactly 20,000 rows
+#: and one, ``mitm``, at 1,043 — 518 of which land in the frozen test half. That is an order of
+#: magnitude below the rest and its curve is not comparable to theirs, so it is excluded from the
+#: panels and reported in the caption instead of being quietly averaged in. The threshold is a row
+#: count rather than a name so that a re-delivered dataset cannot silently reinstate it.
+MIN_FAMILY_ROWS: int = 5_000
+
+#: Budgets drawn on Figure 6, in order, and the ceiling that sits past the axis break — the same
+#: x-axis as Figure 2, so the two read together.
+RECOVERY_FAMILY_RUN_IDS: tuple[str, ...] = RECOVERY_RUN_IDS
+
+
+def _recovery_family_table(
+    frame: pd.DataFrame,
+) -> tuple[pd.DataFrame, list[str], list[str], int]:
+    """``(curve, drawn, excluded, n_frozen)`` for Figure 6, from ``family_set="native"`` rows only.
+
+    ``curve`` carries **every** native family, including the ones too small to draw, so the caption
+    can quote the excluded one's numbers from the same table the panels come from rather than from
+    prose. ``drawn`` is the families at or above :data:`MIN_FAMILY_ROWS`, largest first; ``excluded``
+    is the remainder. ``n_frozen`` is the frozen test half's size, summed out of the artifact
+    (every family's rows plus the shared normal block) rather than transcribed.
+    """
+    if FREEZE_CONTROL_RUN_ID in (*RECOVERY_FAMILY_RUN_IDS, CEILING_RUN_ID):  # pragma: no cover
+        raise RuntimeError(
+            f"{FREEZE_CONTROL_RUN_ID} is configured as a per-family budget point. It is the MLP "
+            "freeze-cost control at the ceiling's budget, not a point on the curve."
+        )
+    native = frame[frame["family_set"] == NATIVE_FAMILY_SET]
+    if native.empty:
+        raise KeyError(
+            "reports/per_family_metrics.csv holds no `native` rows. Those are Phase 7's; run "
+            "`python -m src.transfer`, or `./run.sh`, which runs it before Phase 9."
+        )
+
+    sizes = native.groupby("family")["n_family"].agg(["min", "max"])
+    if (sizes["min"] != sizes["max"]).any():
+        raise RuntimeError(
+            "a family's row count differs between two rows of the per-family log; every Phase 7 "
+            "point must be scored on the one frozen TON_IoT test half."
+        )
+    ordered = sizes["min"].sort_values(ascending=False)
+    drawn = [str(name) for name in ordered[ordered >= MIN_FAMILY_ROWS].index]
+    excluded = [str(name) for name in ordered[ordered < MIN_FAMILY_ROWS].index]
+
+    normals = set(native["n_normal"])
+    if len(normals) != 1:
+        raise RuntimeError(
+            f"the frozen half's normal block differs between rows ({sorted(normals)}); every "
+            "one-vs-normal subset must have been scored against the same benign rows."
+        )
+    n_frozen = int(ordered.sum()) + int(normals.pop())
+
+    records = []
+    for family in ordered.index:
+        for model in (*RECOVERY_MODELS, FLOOR_MODEL):
+            for run_id in (*RECOVERY_FAMILY_RUN_IDS, CEILING_RUN_ID):
+                row = select_family_row(
+                    frame, run_id, model, TRANSFER_REGIME, NATIVE_FAMILY_SET, family
+                )
+                records.append({
+                    "family": family, "model": model, "run_id": run_id,
+                    "fraction": (
+                        1.0 if run_id == CEILING_RUN_ID else float(run_id.rsplit("-f", 1)[-1])
+                    ),
+                    "f1": float(row["f1"]), "roc_auc": float(row["roc_auc"]),
+                    "n_family": int(row["n_family"]), "n_normal": int(row["n_normal"]),
+                    "positive_rate": float(row["positive_rate"]),
+                })
+    curve = pd.DataFrame.from_records(records)
+
+    # The dummy is a floor only if it is one: its score depends on prevalence, which is constant
+    # per family across budgets, so it must not move along x. Assert rather than assume.
+    for family in ordered.index:
+        floor = curve[(curve["family"] == family) & (curve["model"] == FLOOR_MODEL)]
+        for metric in ("f1", "roc_auc"):
+            if floor[metric].round(9).nunique() != 1:
+                raise RuntimeError(
+                    f"the majority-class {metric} for family {family!r} is not constant across the "
+                    f"Phase 7 budgets ({sorted(set(floor[metric]))}); it cannot be a floor line."
+                )
+    return curve, drawn, excluded, n_frozen
+
+
+def plot_per_family_recovery(results: Any, out: Any = FIGURES) -> Path:
+    """Per-family F1 vs fine-tune budget, on the frozen TON_IoT test half (RQ2 decomposed).
+
+    **A different population from Figure 5, and deliberately so.** This is a *within*-era
+    breakdown over **TON_IoT's own attack types** — the eight delivered at 20,000 rows each — asking
+    what a modern labelling budget buys per modern attack class. Five of the eight (`ddos`,
+    `injection`, `password`, `ransomware`, `xss`) have no 2015 counterpart at all, which is exactly
+    why they cannot appear on Figure 5 and exactly why they are the interesting ones here:
+    ``ransomware`` is the class the drift story is really about.
+
+    One small panel per family, sharing Figure 2's x-axis (ordinal budget positions, the per-model
+    ceiling past a dashed break) and Figure 2's model colours, markers and dash patterns, so a
+    reader carries one encoding across both. Each panel also carries **its own** majority-class
+    floor: one-vs-normal makes every family's subset a different balance, so there is no single
+    floor line for the figure.
+
+    ``results`` is the DataFrame from :func:`load_per_family` (or ``None`` / a path). Every point is
+    scored on the same frozen 105,521-row TON_IoT test half that no budget ever draws from; the MLP
+    freeze-cost control is excluded and asserted excluded, exactly as on Figure 2.
+    """
+    apply_style()
+    curve, families, excluded, n_frozen = _recovery_family_table(as_per_family_frame(results))
+    drawn = curve[curve["family"].isin(families)]
+
+    fractions = sorted(curve[curve["run_id"] != CEILING_RUN_ID]["fraction"].unique())
+    x_budget = list(range(len(fractions)))
+    x_ceiling = len(fractions) + 0.55
+    break_x = len(fractions) - 0.5 + 0.275
+
+    columns = 4
+    rows = (len(families) + columns - 1) // columns
+    fig, axes = plt.subplots(rows, columns, figsize=(PAGE_WIDTH_IN, 4.9), sharex=True, sharey=True)
+    fig.subplots_adjust(left=0.082, right=0.992, top=0.745, bottom=0.225, wspace=0.14, hspace=0.46)
+    flat = [ax for row in axes for ax in row]
+
+    for index, family in enumerate(families):
+        ax = flat[index]
+        block = curve[curve["family"] == family]
+        floor = float(block[block["model"] == FLOOR_MODEL]["f1"].iloc[0])
+        ax.axvline(break_x, color=INK_MUTED, linewidth=0.8, linestyle=(0, (2, 2)), alpha=0.6,
+                   zorder=1)
+        ax.axhline(floor, color=INK_SECONDARY, linewidth=1.0, linestyle=(0, (3, 2)), zorder=2)
+
+        for model in RECOVERY_MODELS:
+            points = block[block["model"] == model].sort_values("fraction")
+            budgets = points[points["run_id"] != CEILING_RUN_ID]["f1"].to_numpy()
+            ceiling = float(points[points["run_id"] == CEILING_RUN_ID]["f1"].iloc[0])
+            colour = MODEL_COLOURS[model]
+            ax.plot(
+                x_budget, budgets, color=colour, linestyle=MODEL_DASHES[model],
+                marker=MODEL_MARKERS[model], markersize=3.2, markeredgecolor="white",
+                markeredgewidth=0.4, linewidth=1.2, label=MODEL_LABELS[model], zorder=3,
+            )
+            ax.plot([x_budget[-1], x_ceiling], [budgets[-1], ceiling], color=colour,
+                    linestyle=(0, (1, 1.4)), linewidth=0.9, alpha=0.7, zorder=3)
+            ax.plot([x_ceiling], [ceiling], marker=MODEL_MARKERS[model], markersize=3.6,
+                    markerfacecolor="white", markeredgecolor=colour, markeredgewidth=1.0, zorder=4)
+
+        # Two short lines, not one long one: at ~1.5 in of panel width a single-line title runs
+        # into its neighbour's, and the per-family class balance (28.4-28.9% throughout) belongs in
+        # the caption rather than repeated eight times.
+        first = block.iloc[0]
+        ax.set_title(
+            f"{family}\nn = {int(first['n_family']):,}", fontsize=7.2, pad=3.0, linespacing=1.35,
+        )
+        ax.text(-0.28, floor - 0.045, f"floor {floor:.3f}", ha="left", va="top", fontsize=5.9,
+                color=INK_SECONDARY, zorder=5,
+                bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.8})
+        ax.set_ylim(-0.04, 1.06)
+        ax.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0])
+        ax.set_xlim(-0.4, x_ceiling + 0.4)
+        ax.set_xticks([*x_budget, x_ceiling])
+        ax.set_xticklabels(
+            [*(f"{fraction:.0%}" for fraction in fractions), "100%"], fontsize=6.2,
+        )
+        ax.grid(axis="y", zorder=0)
+        ax.set_axisbelow(True)
+
+    for ax in flat[len(families):]:  # pragma: no cover - eight families fill the 2x4 grid exactly
+        ax.set_visible(False)
+
+    fig.supylabel("F1 (attack class) — family vs normal", fontsize=8.0, color=INK_PRIMARY, x=0.010)
+    fig.supxlabel(
+        "Fine-tune budget — share of the 105,522-row TON_IoT pool; the column past each\npanel's "
+        "dashed break is that model's own ceiling at the full pool",
+        fontsize=7.8, color=INK_PRIMARY, y=0.128, linespacing=1.5,
+    )
+
+    handles, labels = flat[0].get_legend_handles_labels()
+    ceiling_handle = plt.Line2D(
+        [], [], color=INK_SECONDARY, linestyle=(0, (1, 1.4)), marker="o", markersize=3.6,
+        markerfacecolor="white", markeredgecolor=INK_SECONDARY,
+        label="per-model ceiling (full pool)",
+    )
+    floor_handle = plt.Line2D(
+        [], [], color=INK_SECONDARY, linestyle=(0, (3, 2)),
+        label="majority-class floor (per family)",
+    )
+    fig.legend(
+        [*handles, ceiling_handle, floor_handle],
+        [*labels, ceiling_handle.get_label(), floor_handle.get_label()],
+        loc="lower center", bbox_to_anchor=(0.5, 0.002), ncol=4, handlelength=2.2,
+        columnspacing=1.3, labelcolor=INK_PRIMARY,
+    )
+    _subtitle(
+        fig,
+        "RQ2 per family: the recovery reaches all eight attack types",
+        "TON_IoT's own attack types on the frozen test half — five of the eight have no 2015 "
+        "counterpart and so\ncannot appear in Figure 5. Each family is scored one-vs-normal, so "
+        "every panel carries its own class\nbalance (28.4–28.9% attack) and its own "
+        "majority-class floor. n is the family's row count in that half.",
+    )
+
+    sources: list[SourceRow] = []
+    for family in families:
+        for model in (*RECOVERY_MODELS, FLOOR_MODEL):
+            for run_id in (*RECOVERY_FAMILY_RUN_IDS, CEILING_RUN_ID):
+                sources.append((
+                    f"{family} panel — {MODEL_LABELS[model]} at "
+                    f"{'the ceiling' if run_id == CEILING_RUN_ID else run_id.rsplit('-', 1)[-1]}",
+                    (run_id, model, TRANSFER_REGIME, NATIVE_FAMILY_SET, family),
+                ))
+
+    # Computed from the table the panels are drawn from, including the excluded family's own rows.
+    floors = curve[curve["model"] == FLOOR_MODEL].groupby("family")["f1"].first()
+    real = drawn[drawn["model"] != FLOOR_MODEL]
+    zero = real[real["fraction"] == 0.0]
+    one_pct = real[real["fraction"] == 0.01]
+    below_at_one_pct = one_pct[one_pct["f1"].to_numpy() <= one_pct["family"].map(floors).to_numpy()]
+    cleared = len(one_pct) - len(below_at_one_pct)
+    zero_below = int((zero["f1"].to_numpy() < zero["family"].map(floors).to_numpy()).sum())
+    # The exceptions are named rather than left inside "38 of 40": at the smallest budget the claim
+    # is not uniform, and which pairs miss is the useful part.
+    five_pct = real[real["fraction"] == 0.05]
+    exceptions = (
+        "every one of them clears it"
+        if below_at_one_pct.empty
+        else (
+            "the exceptions are "
+            + ", ".join(
+                f"{MODEL_LABELS[row['model']]} on `{row['family']}` ({row['f1']:.4f} against "
+                f"{float(floors[row['family']]):.4f})"
+                for _index, row in below_at_one_pct.iterrows()
+            )
+            + f", both of which clear it by the 5% budget (minimum {five_pct['f1'].min():.4f})"
+        )
+    )
+    excluded_note = ""
+    for name in excluded:
+        small = curve[curve["family"] == name]
+        best = small[(small["run_id"] == CEILING_RUN_ID) & (small["model"] != FLOOR_MODEL)]
+        excluded_note += (
+            f"TON_IoT's ninth attack type, `{name}`, is **excluded from the panels**: it ships "
+            f"1,043 rows against the others' 20,000 and contributes only "
+            f"{int(small['n_family'].iloc[0]):,} to the frozen half, so its curve is not comparable "
+            f"to theirs. It is also the one family the budget does not rescue — its best ceiling F1 "
+            f"is {best['f1'].max():.4f} against a {float(floors[name]):.4f} floor, against "
+            f"{drawn[(drawn['run_id'] == CEILING_RUN_ID) & (drawn['model'] != FLOOR_MODEL)]['f1'].min():.4f}"
+            f"–"
+            f"{drawn[(drawn['run_id'] == CEILING_RUN_ID) & (drawn['model'] != FLOOR_MODEL)]['f1'].max():.4f} "
+            f"on the eight drawn — worth stating precisely because the rarest family is the one "
+            f"that stays hardest. "
+        )
+    caption = (
+        f"**Figure 6. What a modern labelling budget buys, per TON_IoT attack family (RQ2).** "
+        f"Figure 2's recovery curve decomposed over the {len(families)} attack types TON_IoT "
+        f"delivers at 20,000 rows each, scored on the same frozen {n_frozen:,}-row "
+        f"test half. This is a **within-era** breakdown and a different population from Figure 5: "
+        f"five of the eight (`ddos`, `injection`, `password`, `ransomware`, `xss`) have no UNSW-NB15 "
+        f"counterpart and therefore cannot appear in a cross-era per-family comparison at all. "
+        f"Each family is scored one-vs-normal against the {int(curve['n_normal'].iloc[0]):,} normal "
+        f"rows of the frozen half, so every panel has its own class balance and its own dashed "
+        f"majority-class floor — there is no single floor for this figure. "
+        f"Zero-shot, the five real models sit at F1 {_span(zero['f1'])}, below the family's own "
+        f"floor in {zero_below} of the {len(zero)} (family, model) cases. A budget of 1% of the "
+        f"pool (1,055 labelled flows) lifts them to {_span(one_pct['f1'])}, clearing that floor in "
+        f"{cleared} of the {len(one_pct)} — {exceptions}. The recovery is therefore not confined to "
+        f"the three families the two eras share: the five with no 2015 counterpart recover on the "
+        f"same budget as the three that have one. "
+        f"{excluded_note}"
+        f"x is ordinal and the column past each dashed break is that model's own ceiling at the "
+        f"full pool, exactly as in Figure 2; the MLP freeze-cost control "
+        f"(`{FREEZE_CONTROL_RUN_ID}`) is excluded by construction. "
+        f"Rows come from `reports/per_family_metrics.csv` under `family_set=native`, written by "
+        f"`transfer.run_phase7()`."
+    )
+    return save_figure(fig, "per_family_recovery", caption, sources, out=out)
+
+
+# =========================================================================================
+# Figure 7 — the Methods pipeline diagram
+# =========================================================================================
+#
+# The one figure here that is a *schematic* rather than a measurement, and the course handout calls
+# one out as "extremely useful" in Methods. Two rules keep it from becoming the aspirational box
+# diagram that kind of figure usually is:
+#
+#   1. every module, artifact and path it names is one that exists, spelled the way the repo spells
+#      it, and every count on it is read from `reports/metrics.csv` or from a module constant that
+#      the pipeline itself asserts at runtime (`evaluate.EXPECTED_ROWS`,
+#      `preprocess.EXPECTED_SOURCE_ROWS`, `schema_map.COMMON_COLUMNS`) -- never transcribed;
+#   2. it draws the two things that are *methodologically* load-bearing rather than merely true:
+#      the **fit-on-source boundary** (below it the `Preprocessor` is transform-only, so neither
+#      UNSW-test nor TON_IoT contributes a statistic) and the **leakage seal** (`evaluate.sealed`,
+#      which shadows `fit`/`fit_transform`/`partial_fit` and raises `LeakageError`), which is the
+#      claim of no-leakage made as a runtime guarantee instead of as a promise in prose.
+#
+# It is drawn on a bare axes in a 0-100 x 0-`_PIPE_TOP` coordinate system, top-down, because the
+# per-stage text does not survive being squeezed into six 1.1-inch columns of a left-to-right spine.
+
+#: Height of the diagram's coordinate system. x is always 0-100.
+_PIPE_TOP: float = 104.0
+
+#: Vertical gap between one level and the next; the arrow lives inside it.
+_PIPE_GAP: float = 2.7
+
+#: Internal box geometry, in diagram units, tuned to the type sizes below: top padding, the height
+#: of the bold title line, the gap under it, one body line, and bottom padding. :func:`_pipe_box`
+#: derives its own height from these and its body's line count, so a box can never be too short for
+#: the text inside it -- which is the one failure mode a hand-tuned schematic has.
+_PIPE_PAD_TOP: float = 1.5
+_PIPE_TITLE_H: float = 2.4
+_PIPE_TITLE_GAP: float = 1.1
+_PIPE_LINE_H: float = 2.42
+_PIPE_PAD_BOTTOM: float = 1.4
+
+#: Fills. Module boxes carry ink on white; artifacts are recessive because they are what *flows*
+#: between the modules rather than what acts.
+_MODULE_FACE: str = "#ffffff"
+_ARTIFACT_FACE: str = "#f4f3ef"
+_SEAL_FACE: str = "#faf3ee"
+
+_D_IN_NOTE = re.compile(r"\bd=(\d+)\b")
+_N_FT_IN_NOTE = re.compile(r"n_ft=(\d+)")
+
+
+def _note_field(row: pd.Series, pattern: Any, what: str) -> int:
+    """One integer out of a committed ``notes`` string, or raise naming the row it came from."""
+    match = pattern.search(str(row["notes"]))
+    if match is None:
+        raise ValueError(
+            f"the ({row['run_id']}, {row['model']}, {row['regime']}) row of reports/metrics.csv "
+            f"records no {what} in its notes: {row['notes']!r}"
+        )
+    return int(match.group(1))
+
+
+def _pipeline_facts(frame: pd.DataFrame) -> dict[str, Any]:
+    """Every number the diagram prints, with the committed row or constant each came from.
+
+    Nothing here is a literal. The evaluation-set sizes, feature widths and fine-tune budgets are
+    read from ``reports/metrics.csv`` rows (or from the ``notes`` those rows carry); the fold sizes
+    and the harmonized column count come from the module constants the pipeline asserts against at
+    runtime. If a number on this figure is ever wrong, the run that produced it was wrong too.
+    """
+    from .preprocess import EXPECTED_SOURCE_ROWS, VALIDATION_FRACTION  # noqa: PLC0415
+
+    in_row = select_row(frame, IN_DISTRIBUTION_RUN_ID["dummy"], "dummy", "in_distribution")
+    cross_row = select_row(frame, CROSS_ERA_RUN_ID, "dummy", "cross_era")
+    smallest = select_row(frame, RECOVERY_RUN_IDS[1], "dummy", TRANSFER_REGIME)
+    ceiling = select_row(frame, CEILING_RUN_ID, "dummy", TRANSFER_REGIME)
+
+    n_train, _ = EXPECTED_ROWS["train"]
+    budgets = tuple(float(run_id.rsplit("-f", 1)[-1]) for run_id in RECOVERY_RUN_IDS[1:])
+    return {
+        "n_unsw_train_raw": EXPECTED_SOURCE_ROWS,
+        "n_unsw_test": int(in_row["n_test"]),
+        "n_toniot": int(cross_row["n_test"]),
+        "n_unsw_parquet": EXPECTED_SOURCE_ROWS + int(in_row["n_test"]),
+        "n_common_columns": len(COMMON_COLUMNS),
+        "n_mapped_concepts": len(FEATURE_MAP),
+        "n_train_fold": n_train,
+        "n_val_fold": EXPECTED_SOURCE_ROWS - n_train,
+        "validation_fraction": VALIDATION_FRACTION,
+        "d_full": _note_field(cross_row, _D_IN_NOTE, "feature width"),
+        "d_ablated": _note_field(
+            select_row(frame, ABLATION_RUN_IDS[0], "dummy", "cross_era"), _D_IN_NOTE,
+            "feature width",
+        ),
+        "n_frozen_test": int(smallest["n_test"]),
+        "n_pool": _note_field(ceiling, _N_FT_IN_NOTE, "fine-tune pool size"),
+        "n_smallest_budget": _note_field(smallest, _N_FT_IN_NOTE, "fine-tune sample size"),
+        "budgets": budgets,
+        "n_metrics_rows": len(frame),
+        "n_run_ids": int(frame["run_id"].nunique()),
+    }
+
+
+def _pipe_height(body: str) -> float:
+    """The height a box needs for ``body``'s line count. Derived, never guessed."""
+    lines = len(body.splitlines()) if body else 0
+    return (
+        _PIPE_PAD_TOP + _PIPE_TITLE_H + _PIPE_PAD_BOTTOM
+        + (_PIPE_TITLE_GAP + lines * _PIPE_LINE_H if lines else 0.0)
+    )
+
+
+def _pipe_box(
+    ax: Any, x: float, y: float, w: float, title: str, body: str, *,
+    face: str = _MODULE_FACE, edge: str = INK_SECONDARY, linewidth: float = 0.9,
+    title_size: float = 7.0, body_size: float = 5.8, title_colour: str = INK_PRIMARY,
+    linestyle: Any = "solid", zorder: int = 3,
+) -> float:
+    """One rounded box with a bold title and a centred body block. ``y`` is its BOTTOM edge.
+
+    Returns the height it took, which :func:`plot_pipeline` has already reserved via
+    :func:`_pipe_height` -- the two agree by construction rather than by hand-tuning.
+    """
+    height = _pipe_height(body)
+    ax.add_patch(FancyBboxPatch(
+        (x, y), w, height, boxstyle="round,pad=0,rounding_size=1.2", facecolor=face, edgecolor=edge,
+        linewidth=linewidth, linestyle=linestyle, zorder=zorder,
+    ))
+    ax.text(
+        x + w / 2, y + height - _PIPE_PAD_TOP, title, ha="center", va="top", fontsize=title_size,
+        fontweight="bold", color=title_colour, zorder=zorder + 1,
+    )
+    if body:
+        ax.text(
+            x + w / 2, y + height - _PIPE_PAD_TOP - _PIPE_TITLE_H - _PIPE_TITLE_GAP, body,
+            ha="center", va="top", fontsize=body_size, color=INK_SECONDARY, linespacing=1.28,
+            zorder=zorder + 1,
+        )
+    return height
+
+
+def _pipe_arrow(ax: Any, x0: float, y0: float, x1: float, y1: float, **kwargs: Any) -> None:
+    """A straight flow arrow between two points in diagram coordinates."""
+    ax.add_patch(FancyArrowPatch(
+        (x0, y0), (x1, y1), arrowstyle="-|>", mutation_scale=7.5, shrinkA=0, shrinkB=0,
+        color=kwargs.pop("color", INK_SECONDARY), linewidth=kwargs.pop("linewidth", 1.0), zorder=2,
+        **kwargs,
+    ))
+
+
+def _pipe_elbow(ax: Any, x0: float, y0: float, x1: float, y1: float, y_bend: float) -> None:
+    """A down-across-down connector: used where the flow forks or rejoins."""
+    ax.plot([x0, x0], [y0, y_bend], color=INK_SECONDARY, linewidth=1.0, zorder=2,
+            solid_capstyle="round")
+    ax.plot([x0, x1], [y_bend, y_bend], color=INK_SECONDARY, linewidth=1.0, zorder=2,
+            solid_capstyle="round")
+    _pipe_arrow(ax, x1, y_bend, x1, y1)
+
+
+def plot_pipeline(metrics: Any, out: Any = FIGURES) -> Path:
+    """The Methods pipeline diagram: modules, artifacts, the fit boundary and the leakage seal.
+
+    A schematic rather than a measurement — the only figure in this module that plots no data — but
+    it is generated by the same command as the other six and from the same committed artifacts, so
+    it cannot drift away from the code the way a hand-drawn diagram does. Every module path, every
+    file it names and every count on it either exists in the repo or is read from
+    ``reports/metrics.csv`` (see :func:`_pipeline_facts`).
+
+    Two annotations carry the methodological content and are the reason the figure is worth a slot:
+
+    * the **fit-on-source boundary** — the dashed rule between the two columns. Everything to its
+      left is fitted on the 2015 source era and exactly one flow crosses it (the six fitted models
+      and the frozen ``Preprocessor``); to its right nothing refits the preprocessor, so neither
+      UNSW-test nor TON_IoT contributes a single statistic to the feature space it is scored in.
+      Refitting there is what would invalidate the whole drift measurement;
+    * the **leakage seal** around Phases 6 and 7 — :func:`evaluate.sealed` shadows ``fit``,
+      ``fit_transform`` and ``partial_fit`` on the ``Preprocessor`` for the span of both phases and
+      raises :class:`evaluate.LeakageError`, so "no leakage across eras" is enforced at runtime
+      rather than asserted in prose. Phase 7 legitimately fits *models* on target labels; the seal
+      around it is the preprocessor's, and each model's evaluation span is sealed separately inside
+      :func:`transfer.recovery_curve`.
+
+    ``metrics`` is the DataFrame from :func:`load_metrics` (or ``None`` / a path).
+    """
+    apply_style()
+    frame = as_metrics_frame(metrics)
+    f = _pipeline_facts(frame)
+
+    fig, ax = plt.subplots(figsize=(PAGE_WIDTH_IN, 5.55))
+    fig.subplots_adjust(left=0.008, right=0.992, top=0.808, bottom=0.013)
+    # A hair of slack on x: the seal band is drawn 1.6 units wider than the column it wraps, and
+    # patches are clipped to the axes, so a bare 0-100 range would shave its right edge off.
+    ax.set_xlim(-1.6, 101.6)
+    ax.set_ylim(0, _PIPE_TOP)
+    ax.set_axis_off()
+
+    blue, orange = REGIME_COLOURS["in_distribution"], REGIME_COLOURS["cross_era"]
+    # Two columns rather than one tall spine: at 6.5 in wide, ten stacked full-width levels need a
+    # figure taller than the page it has to share with six other figures, and the per-stage text
+    # does not survive being cut to fit one. The split is not merely typographic -- the rule between
+    # the columns IS the fit-on-source boundary, and exactly one flow crosses it.
+    left_x, right_x, column_w = 1.0, 55.0, 44.0
+    left_mid, right_mid = left_x + column_w / 2, right_x + column_w / 2
+    boundary_x, lane_x = 51.5, 48.0
+    top = 99.5
+
+    cursor = top
+
+    def place(x: float, title: str, body: str, **kwargs: Any) -> tuple[float, float]:
+        """Place one box at ``x`` on the running cursor; returns its (top, bottom) edges."""
+        nonlocal cursor
+        height = _pipe_height(body)
+        bottom = cursor - height
+        _pipe_box(ax, x, bottom, column_w, title, body, **kwargs)
+        cursor = bottom
+        return bottom + height, bottom
+
+    def flow(mid: float, gap: float = _PIPE_GAP) -> None:
+        """Drop the cursor by ``gap`` and draw the arrow that spans it."""
+        nonlocal cursor
+        _pipe_arrow(ax, mid, cursor, mid, cursor - gap)
+        cursor -= gap
+
+    # --- left column: the source era, and every fit in the project ----------------------------
+    place(
+        left_x, "data/raw/  —  three delivered CSVs, git-ignored",
+        f"UNSW-NB15 (2015)   training-set {f['n_unsw_train_raw']:,}  ·  test "
+        f"{f['n_unsw_test']:,}\n"
+        f"TON_IoT (2019–20)   Train_Test_Network  {f['n_toniot']:,}",
+        face=_ARTIFACT_FACE, edge=INK_MUTED, title_size=6.8,
+    )
+    flow(left_mid)
+    place(
+        left_x, "src/schema_map.py  —  Phase 2:  align schemas",
+        f"FEATURE_MAP: {f['n_mapped_concepts']} shared concepts  ·  DROP_COLUMNS: row\n"
+        "id, IPs, ports, payload bytes  ·  collapse proto / service /\n"
+        "state  ·  derive rate features + a zero_duration flag",
+    )
+    flow(left_mid)
+    place(
+        left_x, "data/processed/  —  harmonized parquets",
+        f"unsw_common {f['n_unsw_parquet']:,} × {f['n_common_columns']}     "
+        f"toniot_common {f['n_toniot']:,} × {f['n_common_columns']}",
+        face=_ARTIFACT_FACE, edge=INK_MUTED, title_size=6.8,
+    )
+    flow(left_mid)
+    place(
+        left_x, "src/preprocess.py  —  Phase 3:  one Preprocessor",
+        f"stratified {1 - f['validation_fraction']:.0%}/{f['validation_fraction']:.0%} split of "
+        f"UNSW-train, seed {RANDOM_SEED}:\n"
+        f"train fold {f['n_train_fold']:,}  ·  val {f['n_val_fold']:,}\n"
+        "fit(train fold) and nothing else — the log1p, z-score and\n"
+        "one-hot vocabularies come from those rows alone\n"
+        "fit() raises on UNSW-test, on TON_IoT, on the two concatenated",
+        edge=blue, title_colour=blue,
+    )
+    flow(left_mid)
+    place(
+        left_x, f"data/processed/preprocessor.joblib   —   d = {f['d_full']}", "",
+        face=_ARTIFACT_FACE, edge=INK_MUTED, title_size=6.8,
+    )
+    flow(left_mid)
+    models_top, models_bottom = place(
+        left_x, "src/models/  —  Phases 4–5:  six models",
+        f"each fit once on the same {f['n_train_fold']:,}-row train fold\n"
+        "baselines.py: random forest · decision tree · LinearSVC ·\n"
+        "majority-class dummy    scratch_logreg.py · scratch_mlp.py —\n"
+        "pure numpy, hand-written gradients.  Class weights on all six.",
+        edge=blue, title_colour=blue,
+    )
+
+    # --- right column: the two measurement phases, inside the seal, then the outputs -----------
+    cursor = top
+    seal_pad = 2.2
+    evaluate_body = (
+        "the same single fit per model, scored unchanged in two regimes\n"
+        f"in-distribution:  UNSW-test  n = {f['n_unsw_test']:,}\n"
+        f"cross-era, zero-shot:  TON_IoT  n = {f['n_toniot']:,}, no retraining\n"
+        f"three conditions: full d = {f['d_full']}, plus the proto and conn_state\n"
+        f"ablations at d = {f['d_ablated']} — one run_id each, never merged\n"
+        "headline:  Δ = in_distribution − cross_era  (positive = lost)"
+    )
+    transfer_body = (
+        f"TON_IoT split ONCE (seed {RANDOM_SEED}, stratified) into a permanent\n"
+        f"{f['n_frozen_test']:,}-row test half and a disjoint {f['n_pool']:,}-row pool\n"
+        + "budgets "
+        + " · ".join(f"{budget:.0%}" for budget in f["budgets"])
+        + f" of the pool ({f['n_smallest_budget']:,} rows at {f['budgets'][0]:.0%}), plus\n"
+        "the full-pool ceiling — one run_id each, all scored on that\n"
+        "one frozen half.  Models ARE fine-tuned on target labels here\n"
+        "by design; the Preprocessor is not, and stays sealed throughout"
+    )
+    seal_height = (
+        _pipe_height(evaluate_body) + _pipe_height(transfer_body) + _PIPE_GAP + 2 * seal_pad
+    )
+    seal_top = top + seal_pad
+    ax.add_patch(FancyBboxPatch(
+        (right_x - 1.6, seal_top - seal_height), column_w + 3.2, seal_height,
+        boxstyle="round,pad=0,rounding_size=1.4", facecolor=_SEAL_FACE, edgecolor=orange,
+        linewidth=1.0, linestyle=(0, (3.5, 2.0)), zorder=1,
+    ))
+    # Set on the band's own top edge, fieldset-style: the label IS the boundary it names.
+    ax.text(
+        right_mid, seal_top,
+        "LEAKAGE SEAL  ·  evaluate.sealed(preprocessor)\n"
+        "fit / fit_transform / partial_fit raise LeakageError",
+        ha="center", va="center", fontsize=6.2, fontweight="bold", color=orange, linespacing=1.35,
+        zorder=5, bbox={"facecolor": _SEAL_FACE, "edgecolor": "none", "pad": 1.4},
+    )
+
+    _, evaluate_bottom = place(
+        right_x, "src/evaluate.py  —  Phase 6  (RQ1)", evaluate_body,
+        edge=orange, title_colour=orange,
+    )
+    cursor -= _PIPE_GAP
+    transfer_top, _ = place(
+        right_x, "src/transfer.py  —  Phase 7  (RQ2)", transfer_body,
+        edge=orange, title_colour=orange,
+    )
+    cursor = seal_top - seal_height
+    flow(right_mid)
+    place(
+        right_x, "reports/  —  the committed run log + sidecars",
+        f"metrics.csv — {f['n_metrics_rows']} rows / {f['n_run_ids']} run_ids, frozen "
+        f"{len(METRICS_HEADER)}-column header,\nupserted on (run_id, model, regime)\n"
+        "confusion_matrices.json · roc_curves.json   (Phase 6)\n"
+        "per_family_metrics.csv, its own header and key   (Phases 6, 7)",
+        face=_ARTIFACT_FACE, edge=INK_MUTED, title_size=6.8,
+    )
+    flow(right_mid)
+    place(
+        right_x, "src/plots.py  —  Phase 9:  render, never re-derive",
+        "opens all four artifacts READ-ONLY and cross-checks them\n"
+        "against each other before drawing anything",
+    )
+    flow(right_mid)
+    place(
+        right_x, "reports/figures/  —  seven PNGs + README.md",
+        "every caption names the log row behind each mark on the figure",
+        face=_ARTIFACT_FACE, edge=INK_MUTED, title_size=6.8,
+    )
+    outputs_bottom = cursor
+
+    # --- the fit-on-source boundary, and the one flow that crosses it --------------------------
+    # Drawn as the rule BETWEEN the columns rather than as a line across one of them: everything to
+    # its left is fitted on the 2015 source era, and the single lane that crosses it carries the
+    # fitted models and the frozen Preprocessor and nothing else.
+    entry_y = (evaluate_bottom + transfer_top) / 2  # between the two sealed phases: it feeds both
+    ax.plot([boundary_x, boundary_x], [outputs_bottom - 1.0, top + 3.4], color=INK_PRIMARY,
+            linewidth=1.1, linestyle=(0, (4.5, 2.5)), zorder=4)
+    ax.text(
+        boundary_x, (models_bottom + entry_y) / 2 - 3.0,
+        "FIT-ON-SOURCE BOUNDARY\nnothing to its right ever refits the Preprocessor",
+        rotation=90, ha="center", va="center", fontsize=6.2, fontweight="bold", color=INK_PRIMARY,
+        linespacing=1.35, zorder=5,
+        bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.4},
+    )
+
+    models_mid = (models_top + models_bottom) / 2
+    ax.plot([left_x + column_w, lane_x], [models_mid, models_mid], color=INK_SECONDARY,
+            linewidth=1.0, zorder=2, solid_capstyle="round")
+    ax.plot([lane_x, lane_x], [models_mid, entry_y], color=INK_SECONDARY, linewidth=1.0, zorder=2,
+            solid_capstyle="round")
+    _pipe_arrow(ax, lane_x, entry_y, right_x - 1.6, entry_y)
+    # Set along the lane rather than over the arrowhead: the channel between the columns is
+    # 8 diagram units wide, and a horizontal label of this length there would knock a hole in the
+    # left column's border on one side and the seal band's on the other.
+    ax.text(
+        lane_x - 1.4, (models_mid + entry_y) / 2,
+        "six fitted models + the frozen Preprocessor",
+        rotation=90, ha="center", va="center", fontsize=5.9, color=INK_SECONDARY, zorder=5,
+    )
+
+    # The whole chain is one command, which is the reproducibility claim; say so at the foot.
+    ax.text(
+        left_mid, models_bottom - 3.6,
+        "./run.sh runs Phases 2 → 4, 6, 7 and 9 in order from the raw\n"
+        f"CSVs.  RANDOM_SEED = {RANDOM_SEED} throughout (src/config.py), and every\n"
+        "write upserts, so a re-run leaves the log, all three sidecars\n"
+        "and all seven figures byte-identical.",
+        ha="center", va="top", fontsize=6.1, color=INK_SECONDARY, linespacing=1.4,
+    )
+
+    _subtitle(
+        fig,
+        "Methods: the ids-crossera pipeline, and where the two leakage guards sit",
+        "Strictly linear — each stage's committed output is the next stage's only input. The "
+        "dashed rule is the fit-on-source\nboundary; the tinted band is the span over which the "
+        "fitted Preprocessor is sealed against being refitted at all.",
+    )
+
+    sources: list[SourceRow] = [
+        ("in-distribution evaluation-set size (n_test)",
+         (IN_DISTRIBUTION_RUN_ID["dummy"], "dummy", "in_distribution")),
+        ("cross-era evaluation-set size and the full feature width d (n_test, notes)",
+         (CROSS_ERA_RUN_ID, "dummy", "cross_era")),
+        ("ablated feature width d (notes)", (ABLATION_RUN_IDS[0], "dummy", "cross_era")),
+        ("frozen test-half size and the smallest fine-tune budget (n_test, notes)",
+         (RECOVERY_RUN_IDS[1], "dummy", TRANSFER_REGIME)),
+        ("fine-tune pool size (notes)", (CEILING_RUN_ID, "dummy", TRANSFER_REGIME)),
+        (f"metrics.csv row and run_id counts — every row of the log ({f['n_metrics_rows']} rows)",
+         ("(all)", "(all)", "(all)")),
+    ]
+
+    caption = (
+        f"**Figure 7 (Methods). The ids-crossera pipeline, and the two places leakage is "
+        f"structurally prevented.** "
+        f"Data flows down the left column, crosses the boundary once, and continues down the "
+        f"right; each stage's committed output is the next stage's only "
+        f"input. The three raw CSVs are harmonized by `src/schema_map.py` into two "
+        f"{f['n_common_columns']}-column parquets over a shared feature subspace "
+        f"({f['n_mapped_concepts']} mapped concepts plus derived rate features), a single "
+        f"`Preprocessor` is fit in `src/preprocess.py` on the {f['n_train_fold']:,}-row UNSW "
+        f"training fold and serialized, and the six models of Phases 4–5 are each fit once on that "
+        f"same fold. "
+        f"The dashed rule between the columns is the **fit-on-source boundary**: everything to its "
+        f"right is transform-only, "
+        f"so the UNSW-NB15 test set (n = {f['n_unsw_test']:,}) and TON_IoT "
+        f"(n = {f['n_toniot']:,}) are pushed through the frozen Phase 3 parameters and neither "
+        f"contributes a statistic to the d = {f['d_full']} feature space it is scored in. "
+        f"The tinted band is the **leakage seal**: `evaluate.sealed()` shadows `fit`, "
+        f"`fit_transform` and `partial_fit` on the preprocessor for the whole span of Phases 6 and "
+        f"7 and raises `LeakageError` if any of them is called, which makes the no-leakage "
+        f"constraint a runtime guarantee rather than a claim. Phase 7 does legitimately fit models "
+        f"on target labels — the seal there is the preprocessor's, and each model's *evaluation* "
+        f"span is sealed separately — which is why its budgets are drawn from a "
+        f"{f['n_pool']:,}-row pool that the permanent {f['n_frozen_test']:,}-row test half never "
+        f"intersects. "
+        f"Every count on this figure is read from the committed `reports/metrics.csv` or from a "
+        f"module constant the pipeline asserts against at runtime; nothing is transcribed. "
+        f"The figure is numbered last only because `reports/figures/README.md` indexes in "
+        f"generation order — in the report it belongs in Methods, ahead of the six results figures."
+    )
+    return save_figure(fig, "pipeline", caption, sources, out=out)
 
 
 # --- Entry point -------------------------------------------------------------------------
@@ -1322,9 +2773,11 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m src.plots",
         description=(
             "Phase 9: render the report figures into reports/figures/, with captions and per-row "
-            "provenance in reports/figures/README.md. Reads reports/metrics.csv for every scalar "
-            "and reports/confusion_matrices.json (written by Phase 6) for the 2x2 counts the "
-            "frozen metrics header has no room for; never writes either."
+            "provenance in reports/figures/README.md. Reads reports/metrics.csv for every scalar, "
+            "reports/confusion_matrices.json and reports/roc_curves.json (written by Phase 6) for "
+            "the counts and curves the frozen metrics header has no room for, and "
+            "reports/per_family_metrics.csv (Phases 6 and 7) for the per-attack-family "
+            "breakdowns; never writes any of them."
         ),
     )
     parser.add_argument(
@@ -1346,6 +2799,20 @@ def main(argv: list[str] | None = None) -> int:
         # three-minute `python -m src.plots` that re-fits eighteen models -- and inside `./run.sh`,
         # which runs Phase 6 immediately before this, it would run the whole phase a second time.
         plot_confusion_matrices(None, out=out),
+        # `None` again, and for the same reason: read the committed reports/roc_curves.json rather
+        # than re-running Phase 6 to recover fpr/tpr vectors `evaluate()` reports only the area of.
+        plot_roc_curves(None, out=out),
+        # The last two read reports/per_family_metrics.csv, again via `None`. They are TWO figures
+        # over two different row populations and must stay two: Figure 5 is the cross-era
+        # comparison and is restricted to the three families both eras label, Figure 6 is the
+        # within-era recovery breakdown over TON_IoT's own eight 20,000-row attack types.
+        plot_per_family_f1(None, out=out),
+        plot_per_family_recovery(None, out=out),
+        # The Methods schematic, generated last so the six results figures keep the numbering their
+        # captions already carry. It plots no data, but every count on it is read from `metrics`
+        # (or from a module constant the pipeline asserts against), so it cannot drift from the
+        # code the way a hand-drawn diagram does.
+        plot_pipeline(metrics, out=out),
     )
     for path in figures:
         print(f"  wrote {path}")

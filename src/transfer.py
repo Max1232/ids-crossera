@@ -101,18 +101,23 @@ from typing import Any
 
 import numpy as np
 
-from .config import METRICS_CSV, RANDOM_SEED, set_seeds
+from .config import METRICS_CSV, PER_FAMILY_CSV, RANDOM_SEED, set_seeds
 from .evaluate import (
     CROSS_ERA,
+    NATIVE_FAMILY_SET,
+    NORMAL_FAMILY,
     POSITIVE_LABEL,
     evaluate,
     load_preprocessor,
     log_metrics,
+    per_family_rows,
     phase6_models,
     read_metrics,
+    regime_families,
     round_metrics,
     sealed,
     transform_regime_frames,
+    write_per_family_metrics,
 )
 
 # Modern-data budgets for the recovery curve.
@@ -434,6 +439,7 @@ def recovery_curve(
     y_toniot: Any,
     *,
     source: tuple[Any, Any] | None = None,
+    families: Any = None,
     fractions: tuple[float, ...] = TRANSFER_FRACTIONS,
     seed: int = RANDOM_SEED,
     verbose: bool = True,
@@ -461,6 +467,13 @@ def recovery_curve(
     to the stub's signature because every point here — including fraction 0 — starts from a
     source-era fit, and the factory alone cannot produce one.
 
+    ``families`` is the per-row family vector for the **whole** TON_IoT frame (aligned to
+    ``y_toniot``); it is sliced to the frozen test half here and every point then carries a
+    ``per_family`` block. The vocabulary is TON_IoT's own (:data:`evaluate.NATIVE_FAMILY_SET`) --
+    this is a within-era breakdown of *what the modern budget buys per attack type*, so the
+    shared three-family map would throw away five of the eight 20,000-row families before the
+    question is even asked.
+
     **Where the leakage seal sits.** Unlike Phase 6, this phase legitimately fits on target data,
     so a seal spanning the fit would raise on the experiment itself. Each model is therefore
     sealed across its :func:`~src.evaluate.evaluate` calls only — the frozen test half can be
@@ -477,6 +490,10 @@ def recovery_curve(
 
     pool, test = frozen_split_indices(y_toniot, seed=seed)
     X_test, y_test = _take(X_toniot, test), _take(y_toniot, test)
+    # Sliced to the frozen half ONCE, from the same positional indices the test matrix is taken
+    # with, so every budget's per-family breakdown is over the identical rows -- which is the same
+    # invariant the curve itself rests on, applied to the family labels.
+    families_test = None if families is None else _take(families, test)
 
     model = model_factory(int(np.shape(X_train)[1]))
     started = time.perf_counter()
@@ -503,7 +520,7 @@ def recovery_curve(
         ),
     ):
         curve[ZERO_SHOT_LABEL] = {
-            **evaluate(model, X_test, y_test),
+            **evaluate(model, X_test, y_test, families=families_test),
             "fraction": 0.0,
             "n_finetune": 0,
             "adaptation": "none (zero-shot: the UNSW-train fit, unadapted)",
@@ -537,7 +554,7 @@ def recovery_curve(
                 "from the fine-tune pool and must never be fitted on"
             ),
         ):
-            scores = evaluate(adapted, X_frozen, y_frozen)
+            scores = evaluate(adapted, X_frozen, y_frozen, families=families_test)
         curve[label] = {
             **scores,
             "fraction": fraction,
@@ -555,7 +572,8 @@ def recovery_curve(
 
 
 def freeze_cost_control(
-    X_toniot: Any, y_toniot: Any, *, seed: int = RANDOM_SEED, verbose: bool = True
+    X_toniot: Any, y_toniot: Any, *, families: Any = None, seed: int = RANDOM_SEED,
+    verbose: bool = True,
 ) -> dict[str, Any]:
     """The MLP at the ceiling budget with **nothing frozen** — what the freeze costs, measured.
 
@@ -571,6 +589,8 @@ def freeze_cost_control(
     X_ft, y_ft, X_test, y_test = sample_fraction(
         X_toniot, y_toniot, CEILING_FRACTION, seed=seed
     )
+    _pool, test = frozen_split_indices(y_toniot, seed=seed)
+    families_test = None if families is None else _take(families, test)
     hidden_and_out = tuple(TUNED_PARAMS["layer_sizes"])[1:]
     model = make_scratch_mlp(layer_sizes=(int(np.shape(X_ft)[1]), *hidden_and_out))
 
@@ -585,7 +605,7 @@ def freeze_cost_control(
             "of the curve and must not be fitted on it"
         ),
     ):
-        scores = evaluate(model, X_test, y_test)
+        scores = evaluate(model, X_test, y_test, families=families_test)
     if verbose:
         print(
             f"\n  freeze-cost control  [{type(model).__name__} {model.layer_sizes}, no layer "
@@ -651,6 +671,10 @@ def run_phase7(log: bool = True) -> dict[str, dict[str, dict[str, Any]]]:
     — TON_IoT is transformed through the frozen Phase 3 artifact or the run raises. Models *are*
     fitted (that is the phase), but only outside the per-evaluation seals in
     :func:`recovery_curve`.
+
+    ``log`` gates both on-disk outputs: the ``reports/metrics.csv`` upserts and the
+    ``reports/per_family_metrics.csv`` rows (this phase's block, keyed on TON_IoT's own attack
+    types, sitting beside Phase 6's shared-family block in the same file).
     """
     preprocessor = load_preprocessor()
     with sealed(
@@ -666,6 +690,12 @@ def run_phase7(log: bool = True) -> dict[str, dict[str, dict[str, Any]]]:
         X_train, y_train = frames["train"]
         X_toniot, y_toniot = frames["toniot"]
         n_features = int(X_train.shape[1])
+        # TON_IoT's OWN attack types, not the three shared families: this breakdown asks what the
+        # modern budget buys per modern attack class, and five of the eight 20,000-row families
+        # (`ddos`, `injection`, `password`, `ransomware`, `xss`) have no 2015 counterpart at all --
+        # the shared map would drop them before the question was asked. Aligned element-wise to
+        # `y_toniot` by `regime_families`.
+        native_families = regime_families(frames)["toniot"][NATIVE_FAMILY_SET]
 
         pool, test = frozen_split_indices(y_toniot, seed=RANDOM_SEED)
         target_rate = _positive_rate(y_toniot)
@@ -722,18 +752,45 @@ def run_phase7(log: bool = True) -> dict[str, dict[str, dict[str, Any]]]:
         results: dict[str, dict[str, dict[str, Any]]] = {}
         for name, factory in phase6_models().items():
             curve = recovery_curve(
-                factory, X_toniot, y_toniot, source=(X_train, y_train), seed=RANDOM_SEED
+                factory, X_toniot, y_toniot, source=(X_train, y_train),
+                families=native_families, seed=RANDOM_SEED,
             )
             results[name] = curve
             for label, scores in curve.items():
                 _log(label, name, scores)
 
-        control = freeze_cost_control(X_toniot, y_toniot, seed=RANDOM_SEED)
+        control = freeze_cost_control(
+            X_toniot, y_toniot, families=native_families, seed=RANDOM_SEED
+        )
         results[FREEZE_CONTROL_MODEL][FREEZE_CONTROL_LABEL] = control
         _log(FREEZE_CONTROL_LABEL, FREEZE_CONTROL_MODEL, control)
 
+        family_rows = [
+            row
+            for name, curve in results.items()
+            for label, scores in curve.items()
+            for row in per_family_rows(
+                scores,
+                run_id=run_id_for(label),
+                model=name,
+                regime=REGIME,
+                family_set=NATIVE_FAMILY_SET,
+                note=(
+                    f"one-vs-normal against the frozen half's {NORMAL_FAMILY} rows; "
+                    f"budget {scores['fraction']:.2%} of the pool, n_ft={scores['n_finetune']}; "
+                    "TON_IoT's own attack types (schema_map.FAMILY_NATIVE_COL)"
+                ),
+            )
+        ]
+        if log:
+            print(
+                f"\nper-family metrics -> {write_per_family_metrics(family_rows)}  "
+                f"({len(family_rows)} rows)"
+            )
+
         _print_redundancy(X_toniot, y_toniot)
 
+    _print_per_family_recovery(family_rows)
     _print_recovery_table(results)
     _print_freeze_cost(results)
     _print_zero_shot_contrast(results)
@@ -775,6 +832,59 @@ def _print_redundancy(X_toniot: Any, y_toniot: Any) -> None:
                 else ""
             )
         )
+
+
+#: Models summarized in the per-family recovery printout. The dummy is the floor, not a competitor,
+#: and is printed on its own line beneath each family rather than folded into the range.
+_REAL_MODELS: tuple[str, ...] = (
+    "random_forest", "decision_tree", "scratch_mlp", "svm", "scratch_logreg",
+)
+
+
+def _print_per_family_recovery(rows: list[dict[str, Any]]) -> None:
+    """Per-TON_IoT-family F1 across the budgets, as the range over the five real models.
+
+    The full table is 6 models x 6 budgets x every family; the file
+    ``reports/per_family_metrics.csv`` carries all of it and Phase 9's figure draws it. What is
+    worth reading in a run log is which families the modern budget *fails* to recover, so this
+    prints the min-max band across the five real models per budget, with the majority-class floor
+    beneath it -- an F1 band sitting on that floor is a family nobody has learned to detect.
+    """
+    if not rows:  # pragma: no cover - run_phase7 always produces rows
+        return
+    by_key = {(row["run_id"], row["model"], row["family"]): row for row in rows}
+    labels = [ZERO_SHOT_LABEL, *(fraction_label(f) for f in TRANSFER_FRACTIONS), CEILING_LABEL]
+    families = sorted({row["family"] for row in rows})
+    print(
+        f"\n{'=' * 108}\nper-family recovery — TON_IoT's own attack types on the frozen test half\n"
+        "  Each family is scored one-vs-normal (the family's rows plus every normal row of the "
+        "frozen half), so F1 and\n  the majority-class floor stay defined and each family has its "
+        "own class balance. F1 shown as the min-max\n  band over the five real models; `dummy` is "
+        f"the floor for that family.\n{'-' * 108}\n"
+        f"{'family':<13}{'n':>8}  " + "".join(f"{label:>15}" for label in labels)
+    )
+    for family in families:
+        cells = []
+        for label in labels:
+            values = [
+                float(by_key[(run_id_for(label), model, family)]["f1"])
+                for model in _REAL_MODELS
+                if (run_id_for(label), model, family) in by_key
+            ]
+            cells.append(f"{min(values):.3f}-{max(values):.3f}" if values else "--")
+        reference = by_key[(run_id_for(labels[0]), _REAL_MODELS[0], family)]
+        floor = by_key.get((run_id_for(labels[0]), "dummy", family))
+        print(
+            f"{family:<13}{int(reference['n_family']):>8,}  "
+            + "".join(f"{cell:>15}" for cell in cells)
+            + (f"   floor {float(floor['f1']):.3f}" if floor is not None else "")
+        )
+    print(
+        f"{'-' * 108}\n  n is the family's row count in the frozen half; each band is measured "
+        f"against that family plus the half's\n  "
+        f"{int(reference['n_normal']):,} {NORMAL_FAMILY} rows. Full per-model rows: "
+        f"{PER_FAMILY_CSV}."
+    )
 
 
 def _print_freeze_cost(results: dict[str, dict[str, dict[str, Any]]]) -> None:
@@ -926,7 +1036,10 @@ def main(argv: list[str] | None = None) -> int:
     results = run_phase7()
     rows = sum(len(curve) for curve in results.values())
     run_ids = len({run_id_for(label) for curve in results.values() for label in curve})
-    print(f"\nlogged {rows} rows across {run_ids} run_ids -> {METRICS_CSV}")
+    print(
+        f"\nlogged {rows} rows across {run_ids} run_ids -> {METRICS_CSV}\n"
+        f"per-family rows (TON_IoT's own attack types, frozen test half) -> {PER_FAMILY_CSV}"
+    )
     return 0
 
 

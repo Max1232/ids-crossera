@@ -29,6 +29,17 @@ test, not a paragraph:
   like success in every metric except the ones we report;
 - gradient checks (numerical vs analytic) on the MLP backward pass.
 
+**Phase 9 — the per-attack-family data path** (`test_per_family.py`). The figures are rendered from
+committed artifacts and are checked by eye, but the *numbers* behind the two per-family figures are a
+new computation, so three of its contracts are pinned here: that a family is scored **one-vs-normal**
+(the family's rows plus every normal row of the same set — an attack family is all-positive, so
+scoring it alone would make "F1" a relabelling of recall and put it out of reach of the
+majority-class floor); that a family label disagreeing with the binary label raises rather than
+silently attributing one family's predictions to another; and that `family_set` is part of
+`reports/per_family_metrics.csv`'s upsert key, because `dos`, `scanning` and `backdoor` exist in
+*both* vocabularies over completely different row populations and would otherwise overwrite each
+other.
+
 **Also worth covering, cheap:** `evaluate.log_metrics()` idempotence — that logging the same row twice
 leaves `reports/metrics.csv` byte-identical, and that two rows differing only in `run_id` coexist
 rather than overwrite (the ablation/transfer-fraction convention documented under **Metrics log** in

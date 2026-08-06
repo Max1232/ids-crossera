@@ -5,11 +5,17 @@ every run.** Each entry carries the report-ready caption and the exact rows of
 `reports/metrics.csv` every mark was drawn from — or, for the confusion matrices, checked
 against — keyed on `(run_id, model, regime)`.
 
-Source log: `reports/metrics.csv` (MD5 `116def31c6bca1bb788d4a86f9cc976e`) — every scalar. The 2x2
-confusion counts, which that file's frozen 14-column header has no room for, come from
-`reports/confusion_matrices.json` (MD5 `e6525580adbf1854cf30ce729e82f644`), written by
-`evaluate.run_phase6()`. This module reads both and writes neither; where they overlap they
-are cross-checked against each other before anything is drawn.
+Source log: `reports/metrics.csv` (MD5 `116def31c6bca1bb788d4a86f9cc976e`) — every scalar. Two
+quantities that file's frozen 14-column header has no room for come from their own sidecars,
+both written by `evaluate.run_phase6()`: the 2x2 confusion counts from
+`reports/confusion_matrices.json` (MD5 `e6525580adbf1854cf30ce729e82f644`) and the ROC
+vertices from `reports/roc_curves.json` (MD5 `1f5f63a4caa0040817bbe5130c0a1179`).
+The per-attack-family figures read a fourth committed table,
+`reports/per_family_metrics.csv` (MD5 `27e47e78aa06998353e4050b115ec2d9`), whose own
+frozen header is keyed on `(run_id, model, regime, family_set, family)` — the metrics log's
+key has no family dimension, so a per-family row would collide with the aggregate row it
+decomposes. This module reads all four and writes none; where they overlap they are
+cross-checked against each other before anything is drawn.
 
 **Δ sign convention throughout: `Δ = in_distribution − cross_era`, i.e. what the model
 *lost* — positive means degraded.** This is `evaluate.metric_deltas()` and what `./run.sh`
@@ -91,3 +97,373 @@ prints.
 | Logistic reg. (from scratch) — matrix in row (b); matrix from run_phase6()/phase6-crossera, cross-checked against | `phase6-crossera` | `scratch_logreg` | `cross_era` |
 | Majority-class dummy — matrix in row (a); matrix from run_phase6()/phase6-crossera, cross-checked against | `phase4-baselines` | `dummy` | `in_distribution` |
 | Majority-class dummy — matrix in row (b); matrix from run_phase6()/phase6-crossera, cross-checked against | `phase6-crossera` | `dummy` | `cross_era` |
+
+## Figure 4 — `roc_curves.png`
+
+**Figure 4. ROC curves in both regimes (RQ1).** The same single fit per model as Figures 1 and 3, evaluated in-distribution on the UNSW-NB15 test set (panel a; n=82,332; 55.06% attack) and zero-shot cross-era on TON_IoT (panel b; n=211,043; 76.31% attack), with no refitting of the model or the preprocessor. The dashed 45° line is chance and the shaded triangle beneath it is the sub-chance region. In (a) all five real models run above it, at ROC-AUC 0.8811–0.9788; in (b) all five lie inside it, at 0.1846–0.3534, and no drawn vertex of any of the five rises more than 0.00002 above the diagonal. A curve below the diagonal is not a weak detector but an inverted one: the 2015-learned score ranks 2019–20 attacks below normal traffic, so the loss (Δ = in-distribution − cross-era, positive = degraded) of up to Δ +0.7775 is a rank inversion rather than a decay. The majority-class dummy is included as the degenerate case: a constant predictor has a single operating point, so its ROC *is* the chance diagonal, at exactly 0.5000 in both regimes — it is the control showing that the collapse in (b) is not the change in class balance, since a prevalence-driven artifact would move it too. Each legend entry's ROC-AUC is the committed value from the `(run_id, model, regime)` row of `reports/metrics.csv`, not a quantity re-derived here. Curves come from `evaluate.run_phase6()` under `run_id=phase6-crossera` (the full d=22 feature set; both ablation conditions are excluded by construction) via `reports/roc_curves.json`, where each is stored as exact integer (false-positive, true-positive) vertex counts reduced from up to 33,622 vertices to at most 512 by an area-preserving simplification; the trapezoidal area of every drawn curve was re-checked against its own logged ROC-AUC before plotting and agrees to within 4.4e-07.
+
+| figure element | run_id | model | regime |
+|---|---|---|---|
+| Random forest — curve and legend AUC in panel (a); curve from run_phase6()/phase6-crossera, AUC read from | `phase4-baselines` | `random_forest` | `in_distribution` |
+| Random forest — curve and legend AUC in panel (b); curve from run_phase6()/phase6-crossera, AUC read from | `phase6-crossera` | `random_forest` | `cross_era` |
+| Decision tree — curve and legend AUC in panel (a); curve from run_phase6()/phase6-crossera, AUC read from | `phase4-baselines` | `decision_tree` | `in_distribution` |
+| Decision tree — curve and legend AUC in panel (b); curve from run_phase6()/phase6-crossera, AUC read from | `phase6-crossera` | `decision_tree` | `cross_era` |
+| MLP (from scratch) — curve and legend AUC in panel (a); curve from run_phase6()/phase6-crossera, AUC read from | `phase6-crossera` | `scratch_mlp` | `in_distribution` |
+| MLP (from scratch) — curve and legend AUC in panel (b); curve from run_phase6()/phase6-crossera, AUC read from | `phase6-crossera` | `scratch_mlp` | `cross_era` |
+| Linear SVM — curve and legend AUC in panel (a); curve from run_phase6()/phase6-crossera, AUC read from | `phase4-baselines` | `svm` | `in_distribution` |
+| Linear SVM — curve and legend AUC in panel (b); curve from run_phase6()/phase6-crossera, AUC read from | `phase6-crossera` | `svm` | `cross_era` |
+| Logistic reg. (from scratch) — curve and legend AUC in panel (a); curve from run_phase6()/phase6-crossera, AUC read from | `phase6-crossera` | `scratch_logreg` | `in_distribution` |
+| Logistic reg. (from scratch) — curve and legend AUC in panel (b); curve from run_phase6()/phase6-crossera, AUC read from | `phase6-crossera` | `scratch_logreg` | `cross_era` |
+| Majority-class dummy — curve and legend AUC in panel (a); curve from run_phase6()/phase6-crossera, AUC read from | `phase4-baselines` | `dummy` | `in_distribution` |
+| Majority-class dummy — curve and legend AUC in panel (b); curve from run_phase6()/phase6-crossera, AUC read from | `phase6-crossera` | `dummy` | `cross_era` |
+
+## Figure 5 — `per_family_crossera.png`
+
+**Figure 5. The cross-era collapse, per shared attack family (RQ1).** Figure 1's aggregate result decomposed over the only three attack families both label spaces contain: DoS ↔ dos (4,089 UNSW-test / 20,000 TON_IoT rows), Reconnaissance ↔ scanning (3,496 UNSW-test / 20,000 TON_IoT rows), Backdoor ↔ backdoor (583 UNSW-test / 20,000 TON_IoT rows). UNSW-NB15 ships **no DDoS class**, and its `Exploits`, `Generic`, `Fuzzers`, `Analysis`, `Shellcode` and `Worms` classes have no TON_IoT counterpart, so the three families reach only **18.02% of UNSW-test's 45,332 attack rows (8,168) and 37.26% of TON_IoT's 161,043 (60,000)** — the binary headline of Figures 1, 3 and 4 uses every row, and only this per-family view is restricted. Each family is scored **one-vs-normal**: the family's rows plus every normal row of the same evaluation set, because an attack family is all-positive by construction and F1 over its rows alone would be a relabelling of recall. Panels (a, c, e) lead with ROC-AUC: 14 of the 15 (family, model) pairs among the five real models fall *below* the 0.5000 chance line cross-era, ranging down to 0.0432, so the inversion of Figure 1 is present in every family rather than driven by one of them. Panels (b, d, f) must be read against the dashed majority-class lines, which move between the regimes far more than in Figure 1: one-vs-normal makes each subset's balance the family's own size, so the same dummy scores F1 0.0306–0.1810 in-distribution and 0.4444 cross-era on prevalence alone. Δ = in-distribution − cross-era throughout, i.e. what the model *lost*: positive means degraded, and a negative per-family Δ F1 is that prevalence rise rather than an improvement. Rows come from `reports/per_family_metrics.csv` under `run_id=phase6-crossera`, `family_set=shared`; the two ablation conditions are not scored per family at all.
+
+| figure element | run_id | model | regime | family_set | family |
+|---|---|---|---|---|---|
+| DoS ↔ dos — Random forest, in-distribution bars | `phase6-crossera` | `random_forest` | `in_distribution` | `shared` | `dos` |
+| DoS ↔ dos — Random forest, cross-era bars | `phase6-crossera` | `random_forest` | `cross_era` | `shared` | `dos` |
+| DoS ↔ dos — Decision tree, in-distribution bars | `phase6-crossera` | `decision_tree` | `in_distribution` | `shared` | `dos` |
+| DoS ↔ dos — Decision tree, cross-era bars | `phase6-crossera` | `decision_tree` | `cross_era` | `shared` | `dos` |
+| DoS ↔ dos — MLP (from scratch), in-distribution bars | `phase6-crossera` | `scratch_mlp` | `in_distribution` | `shared` | `dos` |
+| DoS ↔ dos — MLP (from scratch), cross-era bars | `phase6-crossera` | `scratch_mlp` | `cross_era` | `shared` | `dos` |
+| DoS ↔ dos — Linear SVM, in-distribution bars | `phase6-crossera` | `svm` | `in_distribution` | `shared` | `dos` |
+| DoS ↔ dos — Linear SVM, cross-era bars | `phase6-crossera` | `svm` | `cross_era` | `shared` | `dos` |
+| DoS ↔ dos — Logistic reg. (from scratch), in-distribution bars | `phase6-crossera` | `scratch_logreg` | `in_distribution` | `shared` | `dos` |
+| DoS ↔ dos — Logistic reg. (from scratch), cross-era bars | `phase6-crossera` | `scratch_logreg` | `cross_era` | `shared` | `dos` |
+| DoS ↔ dos — Majority-class dummy, in-distribution bars | `phase6-crossera` | `dummy` | `in_distribution` | `shared` | `dos` |
+| DoS ↔ dos — Majority-class dummy, cross-era bars | `phase6-crossera` | `dummy` | `cross_era` | `shared` | `dos` |
+| Reconnaissance ↔ scanning — Random forest, in-distribution bars | `phase6-crossera` | `random_forest` | `in_distribution` | `shared` | `scanning` |
+| Reconnaissance ↔ scanning — Random forest, cross-era bars | `phase6-crossera` | `random_forest` | `cross_era` | `shared` | `scanning` |
+| Reconnaissance ↔ scanning — Decision tree, in-distribution bars | `phase6-crossera` | `decision_tree` | `in_distribution` | `shared` | `scanning` |
+| Reconnaissance ↔ scanning — Decision tree, cross-era bars | `phase6-crossera` | `decision_tree` | `cross_era` | `shared` | `scanning` |
+| Reconnaissance ↔ scanning — MLP (from scratch), in-distribution bars | `phase6-crossera` | `scratch_mlp` | `in_distribution` | `shared` | `scanning` |
+| Reconnaissance ↔ scanning — MLP (from scratch), cross-era bars | `phase6-crossera` | `scratch_mlp` | `cross_era` | `shared` | `scanning` |
+| Reconnaissance ↔ scanning — Linear SVM, in-distribution bars | `phase6-crossera` | `svm` | `in_distribution` | `shared` | `scanning` |
+| Reconnaissance ↔ scanning — Linear SVM, cross-era bars | `phase6-crossera` | `svm` | `cross_era` | `shared` | `scanning` |
+| Reconnaissance ↔ scanning — Logistic reg. (from scratch), in-distribution bars | `phase6-crossera` | `scratch_logreg` | `in_distribution` | `shared` | `scanning` |
+| Reconnaissance ↔ scanning — Logistic reg. (from scratch), cross-era bars | `phase6-crossera` | `scratch_logreg` | `cross_era` | `shared` | `scanning` |
+| Reconnaissance ↔ scanning — Majority-class dummy, in-distribution bars | `phase6-crossera` | `dummy` | `in_distribution` | `shared` | `scanning` |
+| Reconnaissance ↔ scanning — Majority-class dummy, cross-era bars | `phase6-crossera` | `dummy` | `cross_era` | `shared` | `scanning` |
+| Backdoor ↔ backdoor — Random forest, in-distribution bars | `phase6-crossera` | `random_forest` | `in_distribution` | `shared` | `backdoor` |
+| Backdoor ↔ backdoor — Random forest, cross-era bars | `phase6-crossera` | `random_forest` | `cross_era` | `shared` | `backdoor` |
+| Backdoor ↔ backdoor — Decision tree, in-distribution bars | `phase6-crossera` | `decision_tree` | `in_distribution` | `shared` | `backdoor` |
+| Backdoor ↔ backdoor — Decision tree, cross-era bars | `phase6-crossera` | `decision_tree` | `cross_era` | `shared` | `backdoor` |
+| Backdoor ↔ backdoor — MLP (from scratch), in-distribution bars | `phase6-crossera` | `scratch_mlp` | `in_distribution` | `shared` | `backdoor` |
+| Backdoor ↔ backdoor — MLP (from scratch), cross-era bars | `phase6-crossera` | `scratch_mlp` | `cross_era` | `shared` | `backdoor` |
+| Backdoor ↔ backdoor — Linear SVM, in-distribution bars | `phase6-crossera` | `svm` | `in_distribution` | `shared` | `backdoor` |
+| Backdoor ↔ backdoor — Linear SVM, cross-era bars | `phase6-crossera` | `svm` | `cross_era` | `shared` | `backdoor` |
+| Backdoor ↔ backdoor — Logistic reg. (from scratch), in-distribution bars | `phase6-crossera` | `scratch_logreg` | `in_distribution` | `shared` | `backdoor` |
+| Backdoor ↔ backdoor — Logistic reg. (from scratch), cross-era bars | `phase6-crossera` | `scratch_logreg` | `cross_era` | `shared` | `backdoor` |
+| Backdoor ↔ backdoor — Majority-class dummy, in-distribution bars | `phase6-crossera` | `dummy` | `in_distribution` | `shared` | `backdoor` |
+| Backdoor ↔ backdoor — Majority-class dummy, cross-era bars | `phase6-crossera` | `dummy` | `cross_era` | `shared` | `backdoor` |
+
+## Figure 6 — `per_family_recovery.png`
+
+**Figure 6. What a modern labelling budget buys, per TON_IoT attack family (RQ2).** Figure 2's recovery curve decomposed over the 8 attack types TON_IoT delivers at 20,000 rows each, scored on the same frozen 105,521-row test half. This is a **within-era** breakdown and a different population from Figure 5: five of the eight (`ddos`, `injection`, `password`, `ransomware`, `xss`) have no UNSW-NB15 counterpart and therefore cannot appear in a cross-era per-family comparison at all. Each family is scored one-vs-normal against the 25,000 normal rows of the frozen half, so every panel has its own class balance and its own dashed majority-class floor — there is no single floor for this figure. Zero-shot, the five real models sit at F1 0.0000–0.5145, below the family's own floor in 38 of the 40 (family, model) cases. A budget of 1% of the pool (1,055 labelled flows) lifts them to 0.2538–0.9688, clearing that floor in 38 of the 40 — the exceptions are MLP (from scratch) on `injection` (0.4035 against 0.4468), MLP (from scratch) on `scanning` (0.2538 against 0.4453), both of which clear it by the 5% budget (minimum 0.7368). The recovery is therefore not confined to the three families the two eras share: the five with no 2015 counterpart recover on the same budget as the three that have one. TON_IoT's ninth attack type, `mitm`, is **excluded from the panels**: it ships 1,043 rows against the others' 20,000 and contributes only 518 to the frozen half, so its curve is not comparable to theirs. It is also the one family the budget does not rescue — its best ceiling F1 is 0.8266 against a 0.0398 floor, against 0.8425–0.9902 on the eight drawn — worth stating precisely because the rarest family is the one that stays hardest. x is ordinal and the column past each dashed break is that model's own ceiling at the full pool, exactly as in Figure 2; the MLP freeze-cost control (`phase7-recovery-ceiling-no_freeze`) is excluded by construction. Rows come from `reports/per_family_metrics.csv` under `family_set=native`, written by `transfer.run_phase7()`.
+
+| figure element | run_id | model | regime | family_set | family |
+|---|---|---|---|---|---|
+| password panel — Random forest at f0.00 | `phase7-recovery-f0.00` | `random_forest` | `target_frozen_test` | `native` | `password` |
+| password panel — Random forest at f0.01 | `phase7-recovery-f0.01` | `random_forest` | `target_frozen_test` | `native` | `password` |
+| password panel — Random forest at f0.05 | `phase7-recovery-f0.05` | `random_forest` | `target_frozen_test` | `native` | `password` |
+| password panel — Random forest at f0.10 | `phase7-recovery-f0.10` | `random_forest` | `target_frozen_test` | `native` | `password` |
+| password panel — Random forest at f0.25 | `phase7-recovery-f0.25` | `random_forest` | `target_frozen_test` | `native` | `password` |
+| password panel — Random forest at the ceiling | `phase7-recovery-ceiling` | `random_forest` | `target_frozen_test` | `native` | `password` |
+| password panel — Decision tree at f0.00 | `phase7-recovery-f0.00` | `decision_tree` | `target_frozen_test` | `native` | `password` |
+| password panel — Decision tree at f0.01 | `phase7-recovery-f0.01` | `decision_tree` | `target_frozen_test` | `native` | `password` |
+| password panel — Decision tree at f0.05 | `phase7-recovery-f0.05` | `decision_tree` | `target_frozen_test` | `native` | `password` |
+| password panel — Decision tree at f0.10 | `phase7-recovery-f0.10` | `decision_tree` | `target_frozen_test` | `native` | `password` |
+| password panel — Decision tree at f0.25 | `phase7-recovery-f0.25` | `decision_tree` | `target_frozen_test` | `native` | `password` |
+| password panel — Decision tree at the ceiling | `phase7-recovery-ceiling` | `decision_tree` | `target_frozen_test` | `native` | `password` |
+| password panel — MLP (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_mlp` | `target_frozen_test` | `native` | `password` |
+| password panel — MLP (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_mlp` | `target_frozen_test` | `native` | `password` |
+| password panel — MLP (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_mlp` | `target_frozen_test` | `native` | `password` |
+| password panel — MLP (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_mlp` | `target_frozen_test` | `native` | `password` |
+| password panel — MLP (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_mlp` | `target_frozen_test` | `native` | `password` |
+| password panel — MLP (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_mlp` | `target_frozen_test` | `native` | `password` |
+| password panel — Linear SVM at f0.00 | `phase7-recovery-f0.00` | `svm` | `target_frozen_test` | `native` | `password` |
+| password panel — Linear SVM at f0.01 | `phase7-recovery-f0.01` | `svm` | `target_frozen_test` | `native` | `password` |
+| password panel — Linear SVM at f0.05 | `phase7-recovery-f0.05` | `svm` | `target_frozen_test` | `native` | `password` |
+| password panel — Linear SVM at f0.10 | `phase7-recovery-f0.10` | `svm` | `target_frozen_test` | `native` | `password` |
+| password panel — Linear SVM at f0.25 | `phase7-recovery-f0.25` | `svm` | `target_frozen_test` | `native` | `password` |
+| password panel — Linear SVM at the ceiling | `phase7-recovery-ceiling` | `svm` | `target_frozen_test` | `native` | `password` |
+| password panel — Logistic reg. (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_logreg` | `target_frozen_test` | `native` | `password` |
+| password panel — Logistic reg. (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_logreg` | `target_frozen_test` | `native` | `password` |
+| password panel — Logistic reg. (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_logreg` | `target_frozen_test` | `native` | `password` |
+| password panel — Logistic reg. (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_logreg` | `target_frozen_test` | `native` | `password` |
+| password panel — Logistic reg. (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_logreg` | `target_frozen_test` | `native` | `password` |
+| password panel — Logistic reg. (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_logreg` | `target_frozen_test` | `native` | `password` |
+| password panel — Majority-class dummy at f0.00 | `phase7-recovery-f0.00` | `dummy` | `target_frozen_test` | `native` | `password` |
+| password panel — Majority-class dummy at f0.01 | `phase7-recovery-f0.01` | `dummy` | `target_frozen_test` | `native` | `password` |
+| password panel — Majority-class dummy at f0.05 | `phase7-recovery-f0.05` | `dummy` | `target_frozen_test` | `native` | `password` |
+| password panel — Majority-class dummy at f0.10 | `phase7-recovery-f0.10` | `dummy` | `target_frozen_test` | `native` | `password` |
+| password panel — Majority-class dummy at f0.25 | `phase7-recovery-f0.25` | `dummy` | `target_frozen_test` | `native` | `password` |
+| password panel — Majority-class dummy at the ceiling | `phase7-recovery-ceiling` | `dummy` | `target_frozen_test` | `native` | `password` |
+| injection panel — Random forest at f0.00 | `phase7-recovery-f0.00` | `random_forest` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Random forest at f0.01 | `phase7-recovery-f0.01` | `random_forest` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Random forest at f0.05 | `phase7-recovery-f0.05` | `random_forest` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Random forest at f0.10 | `phase7-recovery-f0.10` | `random_forest` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Random forest at f0.25 | `phase7-recovery-f0.25` | `random_forest` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Random forest at the ceiling | `phase7-recovery-ceiling` | `random_forest` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Decision tree at f0.00 | `phase7-recovery-f0.00` | `decision_tree` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Decision tree at f0.01 | `phase7-recovery-f0.01` | `decision_tree` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Decision tree at f0.05 | `phase7-recovery-f0.05` | `decision_tree` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Decision tree at f0.10 | `phase7-recovery-f0.10` | `decision_tree` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Decision tree at f0.25 | `phase7-recovery-f0.25` | `decision_tree` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Decision tree at the ceiling | `phase7-recovery-ceiling` | `decision_tree` | `target_frozen_test` | `native` | `injection` |
+| injection panel — MLP (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_mlp` | `target_frozen_test` | `native` | `injection` |
+| injection panel — MLP (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_mlp` | `target_frozen_test` | `native` | `injection` |
+| injection panel — MLP (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_mlp` | `target_frozen_test` | `native` | `injection` |
+| injection panel — MLP (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_mlp` | `target_frozen_test` | `native` | `injection` |
+| injection panel — MLP (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_mlp` | `target_frozen_test` | `native` | `injection` |
+| injection panel — MLP (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_mlp` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Linear SVM at f0.00 | `phase7-recovery-f0.00` | `svm` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Linear SVM at f0.01 | `phase7-recovery-f0.01` | `svm` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Linear SVM at f0.05 | `phase7-recovery-f0.05` | `svm` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Linear SVM at f0.10 | `phase7-recovery-f0.10` | `svm` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Linear SVM at f0.25 | `phase7-recovery-f0.25` | `svm` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Linear SVM at the ceiling | `phase7-recovery-ceiling` | `svm` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Logistic reg. (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_logreg` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Logistic reg. (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_logreg` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Logistic reg. (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_logreg` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Logistic reg. (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_logreg` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Logistic reg. (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_logreg` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Logistic reg. (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_logreg` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Majority-class dummy at f0.00 | `phase7-recovery-f0.00` | `dummy` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Majority-class dummy at f0.01 | `phase7-recovery-f0.01` | `dummy` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Majority-class dummy at f0.05 | `phase7-recovery-f0.05` | `dummy` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Majority-class dummy at f0.10 | `phase7-recovery-f0.10` | `dummy` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Majority-class dummy at f0.25 | `phase7-recovery-f0.25` | `dummy` | `target_frozen_test` | `native` | `injection` |
+| injection panel — Majority-class dummy at the ceiling | `phase7-recovery-ceiling` | `dummy` | `target_frozen_test` | `native` | `injection` |
+| scanning panel — Random forest at f0.00 | `phase7-recovery-f0.00` | `random_forest` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Random forest at f0.01 | `phase7-recovery-f0.01` | `random_forest` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Random forest at f0.05 | `phase7-recovery-f0.05` | `random_forest` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Random forest at f0.10 | `phase7-recovery-f0.10` | `random_forest` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Random forest at f0.25 | `phase7-recovery-f0.25` | `random_forest` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Random forest at the ceiling | `phase7-recovery-ceiling` | `random_forest` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Decision tree at f0.00 | `phase7-recovery-f0.00` | `decision_tree` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Decision tree at f0.01 | `phase7-recovery-f0.01` | `decision_tree` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Decision tree at f0.05 | `phase7-recovery-f0.05` | `decision_tree` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Decision tree at f0.10 | `phase7-recovery-f0.10` | `decision_tree` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Decision tree at f0.25 | `phase7-recovery-f0.25` | `decision_tree` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Decision tree at the ceiling | `phase7-recovery-ceiling` | `decision_tree` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — MLP (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_mlp` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — MLP (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_mlp` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — MLP (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_mlp` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — MLP (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_mlp` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — MLP (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_mlp` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — MLP (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_mlp` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Linear SVM at f0.00 | `phase7-recovery-f0.00` | `svm` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Linear SVM at f0.01 | `phase7-recovery-f0.01` | `svm` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Linear SVM at f0.05 | `phase7-recovery-f0.05` | `svm` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Linear SVM at f0.10 | `phase7-recovery-f0.10` | `svm` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Linear SVM at f0.25 | `phase7-recovery-f0.25` | `svm` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Linear SVM at the ceiling | `phase7-recovery-ceiling` | `svm` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Logistic reg. (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_logreg` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Logistic reg. (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_logreg` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Logistic reg. (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_logreg` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Logistic reg. (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_logreg` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Logistic reg. (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_logreg` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Logistic reg. (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_logreg` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Majority-class dummy at f0.00 | `phase7-recovery-f0.00` | `dummy` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Majority-class dummy at f0.01 | `phase7-recovery-f0.01` | `dummy` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Majority-class dummy at f0.05 | `phase7-recovery-f0.05` | `dummy` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Majority-class dummy at f0.10 | `phase7-recovery-f0.10` | `dummy` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Majority-class dummy at f0.25 | `phase7-recovery-f0.25` | `dummy` | `target_frozen_test` | `native` | `scanning` |
+| scanning panel — Majority-class dummy at the ceiling | `phase7-recovery-ceiling` | `dummy` | `target_frozen_test` | `native` | `scanning` |
+| xss panel — Random forest at f0.00 | `phase7-recovery-f0.00` | `random_forest` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Random forest at f0.01 | `phase7-recovery-f0.01` | `random_forest` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Random forest at f0.05 | `phase7-recovery-f0.05` | `random_forest` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Random forest at f0.10 | `phase7-recovery-f0.10` | `random_forest` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Random forest at f0.25 | `phase7-recovery-f0.25` | `random_forest` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Random forest at the ceiling | `phase7-recovery-ceiling` | `random_forest` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Decision tree at f0.00 | `phase7-recovery-f0.00` | `decision_tree` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Decision tree at f0.01 | `phase7-recovery-f0.01` | `decision_tree` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Decision tree at f0.05 | `phase7-recovery-f0.05` | `decision_tree` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Decision tree at f0.10 | `phase7-recovery-f0.10` | `decision_tree` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Decision tree at f0.25 | `phase7-recovery-f0.25` | `decision_tree` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Decision tree at the ceiling | `phase7-recovery-ceiling` | `decision_tree` | `target_frozen_test` | `native` | `xss` |
+| xss panel — MLP (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_mlp` | `target_frozen_test` | `native` | `xss` |
+| xss panel — MLP (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_mlp` | `target_frozen_test` | `native` | `xss` |
+| xss panel — MLP (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_mlp` | `target_frozen_test` | `native` | `xss` |
+| xss panel — MLP (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_mlp` | `target_frozen_test` | `native` | `xss` |
+| xss panel — MLP (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_mlp` | `target_frozen_test` | `native` | `xss` |
+| xss panel — MLP (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_mlp` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Linear SVM at f0.00 | `phase7-recovery-f0.00` | `svm` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Linear SVM at f0.01 | `phase7-recovery-f0.01` | `svm` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Linear SVM at f0.05 | `phase7-recovery-f0.05` | `svm` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Linear SVM at f0.10 | `phase7-recovery-f0.10` | `svm` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Linear SVM at f0.25 | `phase7-recovery-f0.25` | `svm` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Linear SVM at the ceiling | `phase7-recovery-ceiling` | `svm` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Logistic reg. (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_logreg` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Logistic reg. (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_logreg` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Logistic reg. (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_logreg` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Logistic reg. (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_logreg` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Logistic reg. (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_logreg` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Logistic reg. (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_logreg` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Majority-class dummy at f0.00 | `phase7-recovery-f0.00` | `dummy` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Majority-class dummy at f0.01 | `phase7-recovery-f0.01` | `dummy` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Majority-class dummy at f0.05 | `phase7-recovery-f0.05` | `dummy` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Majority-class dummy at f0.10 | `phase7-recovery-f0.10` | `dummy` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Majority-class dummy at f0.25 | `phase7-recovery-f0.25` | `dummy` | `target_frozen_test` | `native` | `xss` |
+| xss panel — Majority-class dummy at the ceiling | `phase7-recovery-ceiling` | `dummy` | `target_frozen_test` | `native` | `xss` |
+| ransomware panel — Random forest at f0.00 | `phase7-recovery-f0.00` | `random_forest` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Random forest at f0.01 | `phase7-recovery-f0.01` | `random_forest` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Random forest at f0.05 | `phase7-recovery-f0.05` | `random_forest` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Random forest at f0.10 | `phase7-recovery-f0.10` | `random_forest` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Random forest at f0.25 | `phase7-recovery-f0.25` | `random_forest` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Random forest at the ceiling | `phase7-recovery-ceiling` | `random_forest` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Decision tree at f0.00 | `phase7-recovery-f0.00` | `decision_tree` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Decision tree at f0.01 | `phase7-recovery-f0.01` | `decision_tree` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Decision tree at f0.05 | `phase7-recovery-f0.05` | `decision_tree` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Decision tree at f0.10 | `phase7-recovery-f0.10` | `decision_tree` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Decision tree at f0.25 | `phase7-recovery-f0.25` | `decision_tree` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Decision tree at the ceiling | `phase7-recovery-ceiling` | `decision_tree` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — MLP (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_mlp` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — MLP (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_mlp` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — MLP (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_mlp` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — MLP (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_mlp` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — MLP (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_mlp` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — MLP (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_mlp` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Linear SVM at f0.00 | `phase7-recovery-f0.00` | `svm` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Linear SVM at f0.01 | `phase7-recovery-f0.01` | `svm` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Linear SVM at f0.05 | `phase7-recovery-f0.05` | `svm` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Linear SVM at f0.10 | `phase7-recovery-f0.10` | `svm` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Linear SVM at f0.25 | `phase7-recovery-f0.25` | `svm` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Linear SVM at the ceiling | `phase7-recovery-ceiling` | `svm` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Logistic reg. (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_logreg` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Logistic reg. (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_logreg` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Logistic reg. (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_logreg` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Logistic reg. (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_logreg` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Logistic reg. (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_logreg` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Logistic reg. (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_logreg` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Majority-class dummy at f0.00 | `phase7-recovery-f0.00` | `dummy` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Majority-class dummy at f0.01 | `phase7-recovery-f0.01` | `dummy` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Majority-class dummy at f0.05 | `phase7-recovery-f0.05` | `dummy` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Majority-class dummy at f0.10 | `phase7-recovery-f0.10` | `dummy` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Majority-class dummy at f0.25 | `phase7-recovery-f0.25` | `dummy` | `target_frozen_test` | `native` | `ransomware` |
+| ransomware panel — Majority-class dummy at the ceiling | `phase7-recovery-ceiling` | `dummy` | `target_frozen_test` | `native` | `ransomware` |
+| ddos panel — Random forest at f0.00 | `phase7-recovery-f0.00` | `random_forest` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Random forest at f0.01 | `phase7-recovery-f0.01` | `random_forest` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Random forest at f0.05 | `phase7-recovery-f0.05` | `random_forest` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Random forest at f0.10 | `phase7-recovery-f0.10` | `random_forest` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Random forest at f0.25 | `phase7-recovery-f0.25` | `random_forest` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Random forest at the ceiling | `phase7-recovery-ceiling` | `random_forest` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Decision tree at f0.00 | `phase7-recovery-f0.00` | `decision_tree` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Decision tree at f0.01 | `phase7-recovery-f0.01` | `decision_tree` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Decision tree at f0.05 | `phase7-recovery-f0.05` | `decision_tree` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Decision tree at f0.10 | `phase7-recovery-f0.10` | `decision_tree` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Decision tree at f0.25 | `phase7-recovery-f0.25` | `decision_tree` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Decision tree at the ceiling | `phase7-recovery-ceiling` | `decision_tree` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — MLP (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_mlp` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — MLP (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_mlp` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — MLP (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_mlp` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — MLP (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_mlp` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — MLP (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_mlp` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — MLP (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_mlp` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Linear SVM at f0.00 | `phase7-recovery-f0.00` | `svm` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Linear SVM at f0.01 | `phase7-recovery-f0.01` | `svm` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Linear SVM at f0.05 | `phase7-recovery-f0.05` | `svm` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Linear SVM at f0.10 | `phase7-recovery-f0.10` | `svm` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Linear SVM at f0.25 | `phase7-recovery-f0.25` | `svm` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Linear SVM at the ceiling | `phase7-recovery-ceiling` | `svm` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Logistic reg. (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_logreg` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Logistic reg. (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_logreg` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Logistic reg. (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_logreg` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Logistic reg. (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_logreg` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Logistic reg. (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_logreg` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Logistic reg. (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_logreg` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Majority-class dummy at f0.00 | `phase7-recovery-f0.00` | `dummy` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Majority-class dummy at f0.01 | `phase7-recovery-f0.01` | `dummy` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Majority-class dummy at f0.05 | `phase7-recovery-f0.05` | `dummy` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Majority-class dummy at f0.10 | `phase7-recovery-f0.10` | `dummy` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Majority-class dummy at f0.25 | `phase7-recovery-f0.25` | `dummy` | `target_frozen_test` | `native` | `ddos` |
+| ddos panel — Majority-class dummy at the ceiling | `phase7-recovery-ceiling` | `dummy` | `target_frozen_test` | `native` | `ddos` |
+| backdoor panel — Random forest at f0.00 | `phase7-recovery-f0.00` | `random_forest` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Random forest at f0.01 | `phase7-recovery-f0.01` | `random_forest` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Random forest at f0.05 | `phase7-recovery-f0.05` | `random_forest` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Random forest at f0.10 | `phase7-recovery-f0.10` | `random_forest` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Random forest at f0.25 | `phase7-recovery-f0.25` | `random_forest` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Random forest at the ceiling | `phase7-recovery-ceiling` | `random_forest` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Decision tree at f0.00 | `phase7-recovery-f0.00` | `decision_tree` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Decision tree at f0.01 | `phase7-recovery-f0.01` | `decision_tree` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Decision tree at f0.05 | `phase7-recovery-f0.05` | `decision_tree` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Decision tree at f0.10 | `phase7-recovery-f0.10` | `decision_tree` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Decision tree at f0.25 | `phase7-recovery-f0.25` | `decision_tree` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Decision tree at the ceiling | `phase7-recovery-ceiling` | `decision_tree` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — MLP (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_mlp` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — MLP (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_mlp` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — MLP (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_mlp` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — MLP (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_mlp` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — MLP (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_mlp` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — MLP (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_mlp` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Linear SVM at f0.00 | `phase7-recovery-f0.00` | `svm` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Linear SVM at f0.01 | `phase7-recovery-f0.01` | `svm` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Linear SVM at f0.05 | `phase7-recovery-f0.05` | `svm` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Linear SVM at f0.10 | `phase7-recovery-f0.10` | `svm` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Linear SVM at f0.25 | `phase7-recovery-f0.25` | `svm` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Linear SVM at the ceiling | `phase7-recovery-ceiling` | `svm` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Logistic reg. (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_logreg` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Logistic reg. (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_logreg` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Logistic reg. (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_logreg` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Logistic reg. (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_logreg` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Logistic reg. (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_logreg` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Logistic reg. (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_logreg` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Majority-class dummy at f0.00 | `phase7-recovery-f0.00` | `dummy` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Majority-class dummy at f0.01 | `phase7-recovery-f0.01` | `dummy` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Majority-class dummy at f0.05 | `phase7-recovery-f0.05` | `dummy` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Majority-class dummy at f0.10 | `phase7-recovery-f0.10` | `dummy` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Majority-class dummy at f0.25 | `phase7-recovery-f0.25` | `dummy` | `target_frozen_test` | `native` | `backdoor` |
+| backdoor panel — Majority-class dummy at the ceiling | `phase7-recovery-ceiling` | `dummy` | `target_frozen_test` | `native` | `backdoor` |
+| dos panel — Random forest at f0.00 | `phase7-recovery-f0.00` | `random_forest` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Random forest at f0.01 | `phase7-recovery-f0.01` | `random_forest` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Random forest at f0.05 | `phase7-recovery-f0.05` | `random_forest` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Random forest at f0.10 | `phase7-recovery-f0.10` | `random_forest` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Random forest at f0.25 | `phase7-recovery-f0.25` | `random_forest` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Random forest at the ceiling | `phase7-recovery-ceiling` | `random_forest` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Decision tree at f0.00 | `phase7-recovery-f0.00` | `decision_tree` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Decision tree at f0.01 | `phase7-recovery-f0.01` | `decision_tree` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Decision tree at f0.05 | `phase7-recovery-f0.05` | `decision_tree` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Decision tree at f0.10 | `phase7-recovery-f0.10` | `decision_tree` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Decision tree at f0.25 | `phase7-recovery-f0.25` | `decision_tree` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Decision tree at the ceiling | `phase7-recovery-ceiling` | `decision_tree` | `target_frozen_test` | `native` | `dos` |
+| dos panel — MLP (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_mlp` | `target_frozen_test` | `native` | `dos` |
+| dos panel — MLP (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_mlp` | `target_frozen_test` | `native` | `dos` |
+| dos panel — MLP (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_mlp` | `target_frozen_test` | `native` | `dos` |
+| dos panel — MLP (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_mlp` | `target_frozen_test` | `native` | `dos` |
+| dos panel — MLP (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_mlp` | `target_frozen_test` | `native` | `dos` |
+| dos panel — MLP (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_mlp` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Linear SVM at f0.00 | `phase7-recovery-f0.00` | `svm` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Linear SVM at f0.01 | `phase7-recovery-f0.01` | `svm` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Linear SVM at f0.05 | `phase7-recovery-f0.05` | `svm` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Linear SVM at f0.10 | `phase7-recovery-f0.10` | `svm` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Linear SVM at f0.25 | `phase7-recovery-f0.25` | `svm` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Linear SVM at the ceiling | `phase7-recovery-ceiling` | `svm` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Logistic reg. (from scratch) at f0.00 | `phase7-recovery-f0.00` | `scratch_logreg` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Logistic reg. (from scratch) at f0.01 | `phase7-recovery-f0.01` | `scratch_logreg` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Logistic reg. (from scratch) at f0.05 | `phase7-recovery-f0.05` | `scratch_logreg` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Logistic reg. (from scratch) at f0.10 | `phase7-recovery-f0.10` | `scratch_logreg` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Logistic reg. (from scratch) at f0.25 | `phase7-recovery-f0.25` | `scratch_logreg` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Logistic reg. (from scratch) at the ceiling | `phase7-recovery-ceiling` | `scratch_logreg` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Majority-class dummy at f0.00 | `phase7-recovery-f0.00` | `dummy` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Majority-class dummy at f0.01 | `phase7-recovery-f0.01` | `dummy` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Majority-class dummy at f0.05 | `phase7-recovery-f0.05` | `dummy` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Majority-class dummy at f0.10 | `phase7-recovery-f0.10` | `dummy` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Majority-class dummy at f0.25 | `phase7-recovery-f0.25` | `dummy` | `target_frozen_test` | `native` | `dos` |
+| dos panel — Majority-class dummy at the ceiling | `phase7-recovery-ceiling` | `dummy` | `target_frozen_test` | `native` | `dos` |
+
+## Figure 7 — `pipeline.png`
+
+**Figure 7 (Methods). The ids-crossera pipeline, and the two places leakage is structurally prevented.** Data flows down the left column, crosses the boundary once, and continues down the right; each stage's committed output is the next stage's only input. The three raw CSVs are harmonized by `src/schema_map.py` into two 15-column parquets over a shared feature subspace (8 mapped concepts plus derived rate features), a single `Preprocessor` is fit in `src/preprocess.py` on the 140,272-row UNSW training fold and serialized, and the six models of Phases 4–5 are each fit once on that same fold. The dashed rule between the columns is the **fit-on-source boundary**: everything to its right is transform-only, so the UNSW-NB15 test set (n = 82,332) and TON_IoT (n = 211,043) are pushed through the frozen Phase 3 parameters and neither contributes a statistic to the d = 22 feature space it is scored in. The tinted band is the **leakage seal**: `evaluate.sealed()` shadows `fit`, `fit_transform` and `partial_fit` on the preprocessor for the whole span of Phases 6 and 7 and raises `LeakageError` if any of them is called, which makes the no-leakage constraint a runtime guarantee rather than a claim. Phase 7 does legitimately fit models on target labels — the seal there is the preprocessor's, and each model's *evaluation* span is sealed separately — which is why its budgets are drawn from a 105,522-row pool that the permanent 105,521-row test half never intersects. Every count on this figure is read from the committed `reports/metrics.csv` or from a module constant the pipeline asserts against at runtime; nothing is transcribed. The figure is numbered last only because `reports/figures/README.md` indexes in generation order — in the report it belongs in Methods, ahead of the six results figures.
+
+| figure element | run_id | model | regime |
+|---|---|---|---|
+| in-distribution evaluation-set size (n_test) | `phase4-baselines` | `dummy` | `in_distribution` |
+| cross-era evaluation-set size and the full feature width d (n_test, notes) | `phase6-crossera` | `dummy` | `cross_era` |
+| ablated feature width d (notes) | `phase6-crossera-no_proto` | `dummy` | `cross_era` |
+| frozen test-half size and the smallest fine-tune budget (n_test, notes) | `phase7-recovery-f0.01` | `dummy` | `target_frozen_test` |
+| fine-tune pool size (notes) | `phase7-recovery-ceiling` | `dummy` | `target_frozen_test` |
+| metrics.csv row and run_id counts — every row of the log (73 rows) | `(all)` | `(all)` | `(all)` |

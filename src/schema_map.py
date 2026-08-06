@@ -249,6 +249,26 @@ BINARY_LABEL_COL = {"unsw": "label", "toniot": "label"}
 MULTICLASS_LABEL_COL = {"unsw": "attack_cat", "toniot": "type"}
 FAMILY_LABEL_COL = "family"
 
+# The SECOND family column, and the two are different vocabularies on purpose.
+#
+# `family` above is the SHARED map: it exists so the two eras can be compared, so every level
+# without a counterpart on the other side becomes NA (see SHARED_FAMILIES). That is exactly right
+# for the cross-era per-family figure and exactly wrong for anything asking about one era's own
+# attack classes -- 101,043 of TON_IoT's 211,043 rows carry NA there, including all 20,000 of
+# `ddos`, `injection`, `password`, `ransomware` and `xss` each.
+#
+# `family_native` is each dataset's OWN delivered level, lower-cased and stripped and nothing else:
+# UNSW's ten `attack_cat` values and TON_IoT's ten `type` values, none of them dropped. Phase 7's
+# per-family recovery breakdown is over TON_IoT's own families (the eight 20,000-row attack types
+# plus the 1,043-row `mitm`), which the shared map cannot express. Carried on both frames so the
+# identical-schema guarantee below still holds, and never fed to a model -- it is a label, and
+# `Preprocessor._required_columns()` does not name it.
+#
+# Note the two columns disagree by design where a shared name was chosen over a delivered one:
+# UNSW `Reconnaissance` is `scanning` in `family` (TON_IoT's spelling, so the two eras join) and
+# `reconnaissance` in `family_native`.
+FAMILY_NATIVE_COL = "family_native"
+
 # Which side of each FEATURE_MAP / STATE_COLLAPSE / SHARED_FAMILIES pair a dataset reads.
 SIDES: tuple[str, ...] = ("unsw", "toniot")
 
@@ -323,6 +343,7 @@ COMMON_COLUMNS: tuple[str, ...] = (
     ZERO_DURATION_FLAG,
     "label",
     FAMILY_LABEL_COL,
+    FAMILY_NATIVE_COL,
     "split",
 )
 
@@ -394,6 +415,28 @@ def _map_families(values: pd.Series, side: str) -> pd.Series:
     return normalized.map(mapping).astype("string")
 
 
+def _native_families(values: pd.Series) -> pd.Series:
+    """The delivered multiclass level, lower-cased and stripped, with nothing dropped.
+
+    The counterpart to :func:`_map_families`, and deliberately *not* a mapping: this column is the
+    dataset's own vocabulary (see FAMILY_NATIVE_COL), so the only normalization is case and
+    whitespace -- both sides then spell their families the way the per-era analysis needs.
+
+    Case-folding is safe on both delivered vocabularies: UNSW's ten `attack_cat` levels are still
+    ten distinct strings lower-cased, and TON_IoT's ten `type` levels already are lower-case. It is
+    checked here rather than assumed, because a collision would silently merge two attack classes
+    into one row of the per-family table.
+    """
+    normalized = values.astype("string").str.strip().str.lower()
+    delivered = set(values.astype("string").str.strip().dropna().unique())
+    if len(set(normalized.dropna().unique())) != len(delivered):
+        raise ValueError(
+            f"lower-casing the delivered multiclass levels {sorted(delivered)} merges two of them; "
+            "two attack families would collapse into one row of the per-family table."
+        )
+    return normalized
+
+
 def _harmonize(raw: pd.DataFrame, side: str, split: str) -> pd.DataFrame:
     """Take one raw delivered frame to the shared subspace. Steps 2-6 of build_common_frames()."""
     if side not in SIDES:
@@ -459,6 +502,7 @@ def _harmonize(raw: pd.DataFrame, side: str, split: str) -> pd.DataFrame:
         raise ValueError(f"{side}: `{label_col}` carries non-binary value(s) {unexpected}")
     out["label"] = label
     out[FAMILY_LABEL_COL] = _map_families(df[multiclass_col], side)
+    out[FAMILY_NATIVE_COL] = _native_families(df[multiclass_col])
 
     out["split"] = pd.Series(split, index=df.index, dtype="string")
     return out.loc[:, list(COMMON_COLUMNS)].reset_index(drop=True)
@@ -477,7 +521,8 @@ def build_common_frames() -> None:
        ``RARE_BUCKET`` for the remainder.
     5. Derive ``DERIVED_FEATURES`` under the ``np.where(dur > 0, x / dur, 0.0)`` guard and emit
        ``ZERO_DURATION_FLAG`` as its own column.
-    6. Map labels through ``BINARY_LABEL_COL`` and ``SHARED_FAMILIES`` (unmapped level -> raise).
+    6. Map labels through ``BINARY_LABEL_COL`` and ``SHARED_FAMILIES`` (unmapped level -> raise),
+       and carry the delivered multiclass level itself as ``FAMILY_NATIVE_COL``.
 
     Writes ``data/processed/unsw_common.parquet`` and ``toniot_common.parquet``.
 

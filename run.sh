@@ -6,12 +6,15 @@
 #   preprocess -> baselines -> from-scratch models -> cross-era eval -> transfer -> plots
 #
 # Raw datasets must already be downloaded into data/raw/ (see data/README.md).
-# Phases 2-4, 6 and 7 are implemented and run for real; the remaining steps are still
-# placeholders wired to their eventual entry point and print a banner without doing
-# anything. Phases 6 and 7 dominate the runtime (~3 min and ~2 min) because both re-fit
-# every model from its factory rather than caching one -- Phase 6 runs three conditions.
-# Re-running is safe and idempotent: reports/metrics.csv is upserted on
-# (run_id, model, regime), so a second run leaves it byte-identical.
+# Phases 2-4, 6, 7 and 9 all run for real, so a bare `./run.sh` reproduces every figure
+# in reports/figures/ from the raw CSVs. Phase 5 is the one banner without an invocation:
+# its two entry points print val-fold scores and log nothing (see the note at that step).
+# Phases 6 and 7 dominate the runtime (~3 min and ~2 min) because both re-fit every model
+# from its factory rather than caching one -- Phase 6 runs three conditions; Phase 9 adds
+# a few seconds because it only re-reads committed artifacts.
+# Re-running is safe and idempotent: reports/metrics.csv, reports/per_family_metrics.csv
+# and the two JSON sidecars are upserted or rewritten deterministically, and the figures
+# are redrawn from them, so a second run leaves all of them byte-identical.
 #
 # Usage:
 #   ./run.sh [-h]
@@ -110,7 +113,12 @@ main() {
     "${PYTHON}" -m src.transfer
 
     echo "==> [Phase 9] Figures -> reports/figures/"
-    # TODO Phase 9: "${PYTHON}" -m src.plots
+    # Seven figures plus reports/figures/README.md (report-ready captions + per-row provenance).
+    # Seconds, not minutes: this re-reads the four committed artifacts Phases 4-7 just wrote
+    # (metrics.csv and the confusion / ROC / per-family sidecars) and re-renders from them. It
+    # never fits, transforms or re-derives anything, which is what stops `./run.sh` running a
+    # phase twice and what makes a figure unable to disagree with the table it illustrates.
+    "${PYTHON}" -m src.plots
 
     echo "==> done."
 }
