@@ -1,0 +1,5 @@
+{
+  "_comment": "Human-tuned artist placement for reports/figures/, read by src/plots.py on every render so ./run.sh reproduces the tuned layout byte-identically. Regenerate with `python -m src.plots --tune [figure ...]`, drag, then press s. Hand-editing is fine: legend 'loc' is [x, y] of the box's lower-left as a fraction of its parent; text 'position' is [x, y] in that text's own transform. Delete an entry to fall back to the coded default in src/plots.py.",
+  "figures": {},
+  "version": 1
+}

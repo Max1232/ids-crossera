@@ -3,9 +3,9 @@
 _Consolidated record of where the delivered project departs from the scope promised in
 `Proposal-Final.md`, plus the substantive methodological decisions a reader could reasonably
 question. Last updated: 2026-08-06 (content through **Phase 9**, and the code is complete as of that
-date — §7 records the final audit. §§3.14–3.17 record the four Phase 9 decisions a grader could
+date — §7 records the final audit. §§3.14–3.18 record the five Phase 9 decisions a grader could
 question; §1.3's coverage percentage now names its basis, and §1.4 states Phase 8 as cut rather than
-pending. See the two changelogs at the foot of this file.)_
+pending. See the three changelogs at the foot of this file.)_
 
 **Δ convention, everywhere in this file:** `Δ = in_distribution − cross_era`, i.e. **what the model
 lost**. Positive = degraded, negative = improved. This is `evaluate.metric_deltas()`, and it is what
@@ -658,6 +658,42 @@ parquets. The two columns disagree by design where a shared name won: UNSW `Reco
 `scanning` in `family` (TON_IoT's spelling, so the eras join) and `reconnaissance` in `family_native`.
 **Report home:** Methods (feature alignment) — one clause, if the per-family figures are discussed.
 
+### 3.18 Figure placement is committed data, not a manual edit (Phase 9)
+
+The rubric grades the Results plots directly on labels, legends and clarity, and three of the seven
+figures had legibility defects that a hardcoded `loc=` could not be talked out of: Figure 4's two
+legends sat *inside* their axes (six entries filled panel (a)'s lower-right triangle and, in (b), sat
+on the curve rise near fpr = 1), and Figures 1 and 5 centred each majority-class-F1 label **on** its
+own dashed rule, so the line struck through a digit of the number the label exists to state — 0.7102,
+0.1810, 0.1589 and 0.0306 all had a struck character. All three are fixed in `src/plots.py`: Figure
+4's legends moved below their panels (the figure is 4.35 → 5.25 in tall), and the reference-line
+labels now sit beside their line with a white knockout, flipping side when the line is too close to
+x = 0 to fit one (`backdoor`'s 0.0306).
+
+The mechanism added alongside them is the part worth recording. The obvious way to fix a legend that
+sits on data is to move it by hand in an image editor, and that would break the reproducibility
+claim outright: the report would embed a PNG `./run.sh` cannot produce. So placement was split out of
+the drawing code into **`src/figure_layout.py` + a committed `reports/figures/layout.json`**. Every
+legend and every reference-line label is placed through `Layout`, which applies any override the JSON
+carries; `python -m src.plots --tune <figure>` opens the figure with those artists draggable and
+writes what moved back to the JSON; every later render — including `./run.sh` — reads it. Human
+judgement is captured once, as data, and the figure in the report stays pipeline output. `--vector`
+additionally writes real-text SVG/PDF into a git-ignored `reports/figures/editable/` for changes no
+position can express; that directory is scratch by construction, since the committed figure is always
+the rendered PNG.
+
+Two properties are tested rather than asserted (`tests/test_figure_layout.py`, 25 tests): a measured
+position round-trips, so tuning survives the next run rather than drifting back to the coded default;
+and an absent, empty or entry-deleted `layout.json` renders exactly the coded defaults, which is what
+makes the file safe to delete. The layer is a verified no-op where nothing is overridden — the four
+figures whose defaults were not touched re-rendered **byte-identically**, and `reports/metrics.csv` is
+still md5 `116def31c6bca1bb788d4a86f9cc976e`. `layout.json` ships with `figures: {}`: the coded
+defaults are now good enough that nothing needs an override, and the file is committed for
+discoverability and as the tuner's merge target.
+
+**Report home:** none. This is figure engineering, not a scope deviation — but the three legibility
+fixes are why Figures 1, 4 and 5 in the report differ from any earlier draft's.
+
 ---
 
 ## 4. Open items against rubric claims
@@ -748,3 +784,20 @@ there is no scaffold left standing for a phase that will not run.
 
 **What is left is not code.** The 6-page report, the ≤6-min deck, the pre-recorded `./run.sh` demo,
 and grader access to the repo. Every phase this file documents is delivered.
+
+---
+
+## 8. Change log — 2026-08-06 (figure legibility, and a tunable layout)
+
+The first change to the delivered figures since Phase 9 landed, prompted by the Figure 4 legends
+covering the data they annotate. Full rationale in **§3.18**; the audit-trail facts:
+
+| What | Detail |
+|---|---|
+| Figures changed | **3 of 7** — `roc_curves` (legends moved below the panels), `drift_indist_vs_crossera` and `per_family_crossera` (reference-line labels moved off their own dashed rule, which was striking through a digit) |
+| Figures unchanged | **4 of 7**, re-rendered **byte-identically** through the new placement layer, which is the check that it is a no-op where nothing is overridden |
+| Data | **none touched.** `reports/metrics.csv` still md5 `116def31c6bca1bb788d4a86f9cc976e`; the three sidecars and all captions in `reports/figures/README.md` unchanged |
+| Added | `src/figure_layout.py`, `reports/figures/layout.json` (committed, currently `figures: {}`), `tests/test_figure_layout.py` |
+| Tests | **38 → 63 green** |
+| New commands | `python -m src.plots --tune [figure ...]` (drag a legend, press `s`, position persists to `layout.json` and is re-applied by every run), `--vector` (SVG/PDF into a git-ignored `editable/`), `--list`, and a positional figure filter |
+| Unchanged | `./run.sh` is byte-for-byte the same invocation and still rebuilds all 11 committed artifacts from the raw CSVs; a bare `python -m src.plots` behaves exactly as before |

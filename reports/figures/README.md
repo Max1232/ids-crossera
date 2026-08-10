@@ -21,6 +21,13 @@ cross-checked against each other before anything is drawn.
 *lost* — positive means degraded.** This is `evaluate.metric_deltas()` and what `./run.sh`
 prints.
 
+**To move a legend or a label that sits on top of the data, do not edit the PNG.** Run
+`python -m src.plots --tune <figure>`, drag it where it belongs, and press `s`: the position
+is written to `layout.json` (committed, in this directory) and every later render —
+including `./run.sh` — reproduces it, so the tuned figure is still pipeline output. For a
+change no position can express, `--vector` writes editable SVG/PDF into `editable/`
+(git-ignored). See `src/figure_layout.py`.
+
 ## Figure 1 — `drift_indist_vs_crossera.png`
 
 **Figure 1. Cross-era collapse of a 2015-trained intrusion detector (RQ1).** Each model is trained once on the UNSW-NB15 (2015) training fold and evaluated unchanged in two regimes: in-distribution on the UNSW-NB15 test set (n=82,332; 44.94% normal / 55.06% attack) and zero-shot cross-era on TON_IoT (2019–20; n=211,043; 23.69% normal / 76.31% attack), with no refitting of either the model or the preprocessor. Panel (a) leads because ROC-AUC is insensitive to the change in class balance: every real model falls from 0.8811–0.9788 in-distribution to 0.1846–0.3534 cross-era, i.e. *below* the 0.5000 chance line, so the learned score ranking does not merely stop working but runs backwards (a rank inversion, not a decay); the largest loss is Δ +0.7775. Panel (b) must be read against the two dashed majority-class lines: a dummy that predicts "attack" everywhere scores F1 0.7102 on UNSW-test and 0.8656 on TON_IoT purely because the attack share rises from 55.06% to 76.31%, so part of every F1 movement is prevalence rather than drift. Δ = in-distribution − cross-era throughout, i.e. what the model *lost*: positive means degraded. The two ablation conditions (`phase6-crossera-no_proto`, `phase6-crossera-no_conn_state`) are excluded from this figure by construction.

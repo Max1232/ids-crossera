@@ -40,6 +40,20 @@ silently attributing one family's predictions to another; and that `family_set` 
 *both* vocabularies over completely different row populations and would otherwise overwrite each
 other.
 
+**Phase 9 — the layout-override layer** (`test_figure_layout.py`). A legend that sits on top of the
+data is a graded defect, and the tempting fix — moving it in an image editor — would break the claim
+that `./run.sh` reproduces every figure. `src/figure_layout.py` avoids that by making placement
+committed data (`reports/figures/layout.json`) that every render re-applies, which puts four
+properties on the critical path and all four are tested: that a measured position **round-trips**, so
+a tuning session survives the next run instead of drifting back to the coded default; that an absent,
+empty or entry-deleted file renders **exactly** the coded defaults, which is what makes it safe to
+delete; that a malformed file **raises** rather than silently reverting a figure a human already
+fixed; and that the writer is deterministic and additive, since the file is committed and tuning one
+figure must not discard another's. The drag arithmetic is exercised on synthetic pick/motion/release
+events rather than a GUI, and a parametrized test asserts each figure actually *registers* its
+legends and reference-line labels — a figure edited to call `ax.legend` directly would still render
+and would silently stop being tunable.
+
 **Also worth covering, cheap:** `evaluate.log_metrics()` idempotence — that logging the same row twice
 leaves `reports/metrics.csv` byte-identical, and that two rows differing only in `run_id` coexist
 rather than overwrite (the ablation/transfer-fraction convention documented under **Metrics log** in

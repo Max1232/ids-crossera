@@ -8,8 +8,14 @@ data/processed/*
 # but the raw CSVs they derive from are not in the repo, so a collaborator or grader who clones
 # cannot rebuild them without downloading the datasets first. The figures are also the graded
 # artifact (the rubric scores the Results plots directly), so they ship with the repo.
-# reports/figures/README.md is the captions + row-provenance sidecar, written by src.plots.
+# reports/figures/README.md is the captions + row-provenance sidecar, written by src.plots, and
+# reports/figures/layout.json is the committed human-tuned artist placement it renders with.
 !reports/figures/.gitkeep
+
+# `python -m src.plots --vector` output. Scratch for hand-editing a figure in Inkscape/Illustrator
+# when no layout.json override can express the change; regenerable in seconds, and committing it
+# would put a second copy of every figure under version control that nothing reads.
+reports/figures/editable/
 
 # Python
 __pycache__/

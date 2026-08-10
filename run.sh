@@ -118,6 +118,9 @@ main() {
     # (metrics.csv and the confusion / ROC / per-family sidecars) and re-renders from them. It
     # never fits, transforms or re-derives anything, which is what stops `./run.sh` running a
     # phase twice and what makes a figure unable to disagree with the table it illustrates.
+    # Legend and label positions come from the committed reports/figures/layout.json, so a human
+    # tuning (`python -m src.plots --tune`) is reproduced here rather than lost -- see
+    # src/figure_layout.py. An absent or empty layout.json renders the coded defaults.
     "${PYTHON}" -m src.plots
 
     echo "==> done."
