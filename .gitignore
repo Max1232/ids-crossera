@@ -39,5 +39,9 @@ AI_Sum26_ProjectDescription*.pdf
 # `deviations.md` is the tracked, public-facing record of where the build departs from it.
 Proposal-Final.md
 
+# Test reports/tools
+reports/slides/
+tools/
+
 # OS / editor cruft
 .DS_Store
